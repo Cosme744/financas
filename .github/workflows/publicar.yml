@@ -35,9 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Sem 'enablement: true' de propósito: o token do workflow consegue
+      # publicar num site do Pages existente, mas não consegue criá-lo
+      # ("Resource not accessible by integration"). Criar o site é ato
+      # único, feito uma vez nas configurações do repositório.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
