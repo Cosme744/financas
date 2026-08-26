@@ -1,0 +1,177 @@
+/* Desenhado para o polegar: alvos grandes, número principal legível de relance,
+   e nada que exija zoom. Escuro por padrão porque é o que se olha à noite. */
+
+:root {
+  --bg: #0f1115;
+  --superficie: #171a21;
+  --superficie-2: #1f232c;
+  --borda: #2a2f3a;
+  --texto: #e8eaed;
+  --texto-fraco: #9aa1ad;
+  --ok: #3ddc84;
+  --atencao: #ffc043;
+  --estourado: #ff5c5c;
+  --acento: #6ea8fe;
+  --raio: 16px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--texto);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: calc(72px + var(--safe-b));
+  overscroll-behavior-y: contain;
+}
+
+/* ---------- topo ---------- */
+.topo {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 16px 10px;
+  position: sticky; top: 0; z-index: 5;
+  background: linear-gradient(var(--bg) 70%, transparent);
+}
+.topo h1 {
+  flex: 1; margin: 0; font-size: 17px; font-weight: 600;
+  text-transform: capitalize; letter-spacing: .2px;
+}
+.mes-nav, .sync {
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--borda); background: var(--superficie);
+  color: var(--texto-fraco); font-size: 18px; cursor: pointer;
+}
+.sync.girando #syncIcone { display: inline-block; animation: gira 1s linear infinite; }
+@keyframes gira { to { transform: rotate(360deg); } }
+.sync.pendente { border-color: var(--atencao); color: var(--atencao); }
+
+/* ---------- conteúdo ---------- */
+main { padding: 0 16px; }
+
+.cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+/* O número que responde "posso gastar?". É o motivo do app existir. */
+.destaque { text-align: center; padding: 28px 16px 24px; }
+.destaque .rotulo {
+  font-size: 13px; color: var(--texto-fraco);
+  text-transform: uppercase; letter-spacing: 1.2px;
+}
+.destaque .valor {
+  font-size: clamp(44px, 15vw, 68px);
+  font-weight: 700; line-height: 1.05; margin: 8px 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+.destaque .valor .centavos { font-size: .5em; opacity: .65; }
+.destaque .sub { color: var(--texto-fraco); font-size: 14px; }
+
+.ok       .valor, .pill.ok       { color: var(--ok); }
+.atencao  .valor, .pill.atencao  { color: var(--atencao); }
+.estourado .valor, .pill.estourado { color: var(--estourado); }
+
+.barra { height: 8px; border-radius: 99px; background: var(--superficie-2); overflow: hidden; margin: 14px 0 6px; }
+.barra > i { display: block; height: 100%; border-radius: 99px; transition: width .35s ease; }
+.ok .barra > i { background: var(--ok); }
+.atencao .barra > i { background: var(--atencao); }
+.estourado .barra > i { background: var(--estourado); }
+
+.linhas { display: grid; gap: 2px; }
+.linha {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 11px 0; border-bottom: 1px solid var(--borda);
+}
+.linha:last-child { border-bottom: 0; }
+.linha .nome { display: flex; flex-direction: column; }
+.linha .nome small { color: var(--texto-fraco); font-size: 12px; }
+.linha .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.num.neg { color: var(--estourado); }
+.num.pos { color: var(--ok); }
+
+h2.titulo { font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--texto-fraco); margin: 20px 4px 8px; font-weight: 600; }
+
+.vazio { text-align: center; color: var(--texto-fraco); padding: 32px 16px; }
+
+/* ---------- lançar ---------- */
+.visor {
+  text-align: center; font-size: 46px; font-weight: 700; padding: 18px 0 10px;
+  font-variant-numeric: tabular-nums;
+}
+.visor small { font-size: 20px; color: var(--texto-fraco); margin-right: 6px; }
+.tipo { display: flex; gap: 8px; margin-bottom: 12px; }
+.tipo button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--borda);
+  background: var(--superficie); color: var(--texto-fraco); font-size: 14px; cursor: pointer; }
+.tipo button.on { background: var(--superficie-2); color: var(--texto); border-color: var(--acento); }
+
+.rotulo-campo {
+  font-size: 12px; color: var(--texto-fraco); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .8px; margin: 16px 2px 8px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 10px 14px; border-radius: 99px; font-size: 14px; cursor: pointer;
+  border: 1px solid var(--borda); background: var(--superficie); color: var(--texto);
+}
+.chip.on { background: var(--acento); border-color: var(--acento); color: #0b1220; font-weight: 600; }
+
+.teclado { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.teclado button {
+  padding: 18px 0; font-size: 22px; font-weight: 600;
+  border-radius: 12px; border: 1px solid var(--borda);
+  background: var(--superficie); color: var(--texto); cursor: pointer;
+}
+.teclado button:active { background: var(--superficie-2); }
+
+.principal {
+  width: 100%; padding: 16px; margin-top: 12px; font-size: 17px; font-weight: 700;
+  border: 0; border-radius: 14px; background: var(--acento); color: #0b1220; cursor: pointer;
+}
+.principal:disabled { opacity: .4; }
+
+/* ---------- formulários ---------- */
+label.campo { display: block; margin-bottom: 12px; }
+label.campo span { display: block; font-size: 13px; color: var(--texto-fraco); margin-bottom: 6px; }
+input, select, textarea {
+  width: 100%; padding: 12px; font-size: 16px; color: var(--texto);
+  background: var(--superficie-2); border: 1px solid var(--borda);
+  border-radius: 10px; font-family: inherit;
+}
+.secundario {
+  width: 100%; padding: 13px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); font-size: 15px;
+}
+.perigo { color: var(--estourado); border-color: var(--estourado); }
+
+/* ---------- abas ---------- */
+.abas {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  background: var(--superficie); border-top: 1px solid var(--borda);
+  padding-bottom: var(--safe-b);
+}
+.abas button {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 10px 0 8px; border: 0; background: none; cursor: pointer;
+  color: var(--texto-fraco); font-size: 11px;
+}
+.abas button span { font-size: 19px; line-height: 1; }
+.abas button { font-size: 10.5px; }
+.abas button.ativa { color: var(--acento); }
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed; left: 50%; bottom: calc(84px + var(--safe-b));
+  transform: translate(-50%, 12px);
+  background: var(--superficie-2); border: 1px solid var(--borda);
+  padding: 11px 18px; border-radius: 99px; font-size: 14px;
+  opacity: 0; pointer-events: none; transition: .25s; z-index: 10; max-width: 90vw;
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast.erro { border-color: var(--estourado); color: var(--estourado); }

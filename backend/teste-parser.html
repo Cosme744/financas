@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teste do leitor de notificações</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 24px; background: #0f1115; color: #e8eaed;
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.lead { color: #9aa1ad; margin: 0 0 24px; }
+  textarea { width: 100%; min-height: 90px; padding: 12px; border-radius: 10px;
+             background: #1f232c; color: #e8eaed; border: 1px solid #2a2f3a;
+             font: inherit; resize: vertical; }
+  button { margin-top: 10px; padding: 11px 18px; border: 0; border-radius: 10px;
+           background: #6ea8fe; color: #0b1220; font-weight: 700; cursor: pointer; }
+  .saida { margin-top: 16px; padding: 16px; border-radius: 12px;
+           background: #171a21; border: 1px solid #2a2f3a; }
+  .saida b { color: #3ddc84; }
+  .nao { color: #ff5c5c; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+       color: #9aa1ad; margin: 32px 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #2a2f3a;
+           vertical-align: top; }
+  th { color: #9aa1ad; font-weight: 600; font-size: 12px;
+       text-transform: uppercase; letter-spacing: .5px; }
+  td.ok { color: #3ddc84; } td.falha { color: #ff5c5c; font-weight: 700; }
+  code { background: #1f232c; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+  .placar { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Teste do leitor de notificações</h1>
+  <p class="lead">
+    Cole aqui uma mensagem real do seu banco (e-mail ou push) e veja exatamente o que
+    seria lançado na planilha. Nada é gravado — isto roda só no seu navegador.
+  </p>
+
+  <textarea id="entrada" placeholder="Ex: Compra de R$ 45,90 aprovada em PADARIA PAO QUENTE"></textarea>
+  <button id="testar">Testar</button>
+  <div class="saida" id="saida">Aguardando…</div>
+
+  <h2>Casos de referência</h2>
+  <div class="placar" id="placar"></div>
+  <table>
+    <thead><tr><th></th><th>Caso</th><th>Valor</th><th>Estabelecimento</th><th>Categoria</th><th>Método</th></tr></thead>
+    <tbody id="tabela"></tbody>
+  </table>
+</main>
+
+<script>
+// Stubs mínimos do ambiente Apps Script — só o que o parser toca.
+const SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSpreadsheetTimeZone: () => 'America/Sao_Paulo' }) };
+const Utilities = {
+  DigestAlgorithm: { MD5: 'MD5' },
+  computeDigest: (_, s) => { let h = 0; const o = [];
+    for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0;
+    for (let i = 0; i < 16; i++) o.push((h >> (i % 4 * 8)) & 0xff); return o; },
+  formatDate: (d) => d.toISOString().slice(0, 10),
+  formatString: (f, v) => v.toFixed(2),
+};
+const PropertiesService = { getScriptProperties: () => ({ getProperty: () => null, setProperty: () => {} }) };
+const ContentService = { createTextOutput: () => ({ setMimeType: () => {} }), MimeType: {} };
+const GmailApp = {}, MailApp = {}, UrlFetchApp = {}, ScriptApp = {}, Session = {};
+</script>
+<script src="Code.gs"></script>
+<script>
+const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+/* ---------- teste manual ---------- */
+
+function testar() {
+  const texto = document.getElementById('entrada').value.trim();
+  const saida = document.getElementById('saida');
+  if (!texto) { saida.textContent = 'Cole alguma coisa primeiro.'; return; }
+
+  const t = interpretar(texto, 'teste', texto);
+  saida.innerHTML = t
+    ? `Seria lançado: <b>${brl(Math.abs(t.valor))}</b><br>
+       Estabelecimento: <code>${esc(t.nota)}</code><br>
+       Categoria: <code>${esc(t.categoria)}</code><br>
+       Método: <code>${esc(t.metodo || '(não identificado)')}</code>`
+    : '<span class="nao">Não seria lançado nada.</span> ' +
+      'Ou não achou valor, ou o texto parece estorno / compra recusada / aviso de fatura.';
+}
+document.getElementById('testar').onclick = testar;
+document.getElementById('entrada').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) testar();
+});
+
+/* ---------- casos de referência ---------- */
+
+const CASOS = [
+  ['Banco - crédito', 'Compra de R$ 45,90 aprovada em PADARIA PAO QUENTE', 45.90, 'PADARIA PAO QUENTE'],
+  ['Valor com milhar', 'Você fez uma compra de R$ 1.234,56 no MERCADO ASSAI', 1234.56, 'MERCADO ASSAI'],
+  ['Cartão com final', 'Compra aprovada no cartao final 1234 no valor de R$ 89,90 em UBER TRIP', 89.90, 'UBER TRIP'],
+  ['Delivery', 'Compra de R$ 54,90 aprovada no IFOOD', 54.90, 'IFOOD'],
+  ['Assinatura', 'Compra internacional de R$ 20,00 em OPENAI CHATGPT', 20.00, 'OPENAI CHATGPT'],
+  ['Combustível', 'Compra de R$ 250,00 no POSTO IPIRANGA', 250.00, 'POSTO IPIRANGA'],
+  ['Pix enviado', 'Você enviou um Pix de R$ 150,00 para Joao Silva', 150.00, 'Joao Silva'],
+  ['Farmácia', 'Compra aprovada R$ 78,45 na DROGARIA SAO PAULO', 78.45, 'DROGARIA SAO PAULO'],
+  ['Estorno (ignorar)', 'Estorno de R$ 45,90 em PADARIA PAO QUENTE', null],
+  ['Recusada (ignorar)', 'Compra NEGADA de R$ 500,00 em LOJA X', null],
+  ['Fatura (ignorar)', 'Sua fatura fechou: R$ 2.480,00', null],
+  ['Sem valor (ignorar)', 'Seu cartao foi desbloqueado com sucesso', null],
+];
+
+let passou = 0;
+document.getElementById('tabela').innerHTML = CASOS.map(([nome, texto, esperado, local]) => {
+  const t = interpretar(texto, 'teste', nome);
+  const valor = t ? Math.abs(t.valor) : null;
+  const ok = esperado === null
+    ? t === null
+    : t !== null && Math.abs(valor - esperado) < 0.005 && (!local || t.nota === local);
+  if (ok) passou++;
+  return `<tr>
+    <td class="${ok ? 'ok' : 'falha'}">${ok ? '✓' : '✗'}</td>
+    <td>${esc(nome)}</td>
+    <td>${valor === null ? '<span class="nao">ignorado</span>' : brl(valor)}</td>
+    <td>${t ? '<code>' + esc(t.nota) + '</code>' : '—'}</td>
+    <td>${t ? esc(t.categoria) : '—'}</td>
+    <td>${t ? (t.metodo ? '<code>' + esc(t.metodo) + '</code>' : '—') : '—'}</td>
+  </tr>`;
+}).join('');
+
+document.getElementById('placar').innerHTML = passou === CASOS.length
+  ? `<span style="color:#3ddc84">${passou} de ${CASOS.length} — tudo certo</span>`
+  : `<span style="color:#ff5c5c">${passou} de ${CASOS.length} — ${CASOS.length - passou} falha(s)</span>`;
+</script>
+</body>
+</html>

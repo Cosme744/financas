@@ -1,0 +1,17 @@
+# Anotações locais. Nome de arquivo aparece inteiro no GitHub e fica no
+# histórico para sempre, então nada daqui é versionado.
+backend/*.txt
+
+# Backups exportados pelo app: contêm todos os seus lançamentos.
+backup-financas-*.json
+
+# Lixo do sistema e dos editores
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Arquivos temporários de teste
+_teste-*.html
