@@ -90,7 +90,7 @@ export function home(ref) {
     ${c.aPagar.map((x) => `
       <div class="linha">
         <span class="nome">${escapar(x.nome)}
-          <small>${x.dia < hojeDia ? '⚠ venceu dia ' + x.dia : 'dia ' + x.dia} · ${selo(x)}</small>
+          <small>${x.diaEfetivo < hojeDia ? '⚠ venceu dia ' + x.diaEfetivo : 'dia ' + x.diaEfetivo} · ${selo(x)}</small>
           ${x.reembolso ? `<small>sai do seu bolso: ${dinheiro(liquido(x))}</small>` : ''}
         </span>
         <button class="chip" data-pagar="${x.id}">${dinheiro(x.valor)} · pagar</button>

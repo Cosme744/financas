@@ -226,9 +226,18 @@ function parcelaNoMes(c, ref) {
   return { n: n, total: c.parcelas || null, ultima: !!(c.parcelas && n === c.parcelas) };
 }
 
+/** Mesma regra do app: "dia 31" vira 30 num mês de 30 dias. */
+function diaNoMes(dia, ref) {
+  const ultimo = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+  return Math.min(dia || 1, ultimo);
+}
+
 function ativosNoMes(compromissos, ref) {
   return compromissos
-    .map((c) => { const p = parcelaNoMes(c, ref); return p ? Object.assign({}, c, { parcela: p }) : null; })
+    .map((c) => {
+      const p = parcelaNoMes(c, ref);
+      return p ? Object.assign({}, c, { parcela: p, diaEfetivo: diaNoMes(c.dia, ref) }) : null;
+    })
     .filter((c) => c !== null);
 }
 
@@ -415,9 +424,9 @@ function avisarDoDia() {
   ativos.forEach((c) => {
     if (pagos[c.id]) return;
     const qual = c.parcela.total ? ' (' + c.parcela.n + '/' + c.parcela.total + ')' : '';
-    if (c.dia < dia) avisos.push('⚠ ' + c.nome + qual + ' venceu dia ' + c.dia + ' — ' + reais(c.valor));
-    else if (c.dia - dia <= CONFIG.AVISAR_DIAS_ANTES) {
-      avisos.push('📅 ' + c.nome + qual + ' vence dia ' + c.dia + ' — ' + reais(c.valor));
+    if (c.diaEfetivo < dia) avisos.push('⚠ ' + c.nome + qual + ' venceu dia ' + c.diaEfetivo + ' — ' + reais(c.valor));
+    else if (c.diaEfetivo - dia <= CONFIG.AVISAR_DIAS_ANTES) {
+      avisos.push('📅 ' + c.nome + qual + ' vence dia ' + c.diaEfetivo + ' — ' + reais(c.valor));
     }
   });
 

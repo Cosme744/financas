@@ -55,12 +55,21 @@ export function parcelaNoMes(c, ref) {
   };
 }
 
-/** Compromissos vivos no mês, já com a informação da parcela anexada. */
+/**
+ * Dia em que a conta realmente vence no mês de referência.
+ *
+ * Muita cobrança vence "no último dia do mês", que em julho é 31 e em
+ * setembro é 30. Guardar 31 e comparar cru faria setembro nunca marcar como
+ * vencido. Grampear no tamanho do mês resolve os dois casos com um número só.
+ */
+export const diaNoMes = (dia, ref) => Math.min(dia || 1, diasNoMes(ref));
+
+/** Compromissos vivos no mês, já com parcela e dia efetivo anexados. */
 export function ativosNoMes(compromissos, ref) {
   return (compromissos || [])
-    .map((c) => ({ ...c, parcela: parcelaNoMes(c, ref) }))
+    .map((c) => ({ ...c, parcela: parcelaNoMes(c, ref), diaEfetivo: diaNoMes(c.dia, ref) }))
     .filter((c) => c.parcela !== null)
-    .sort((a, b) => (a.dia || 1) - (b.dia || 1));
+    .sort((a, b) => a.diaEfetivo - b.diaEfetivo);
 }
 
 /* ---------- o cálculo principal ---------- */
