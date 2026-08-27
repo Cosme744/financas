@@ -79,7 +79,21 @@ function diagnostico() {
     'GMAIL_BUSCA..........: ' + c.GMAIL_BUSCA,
     'AVISAR_DIAS_ANTES....: ' + c.AVISAR_DIAS_ANTES,
     'ABA_ANTIGA...........: ' + c.ABA_ANTIGA,
+    'ABA_ANTIGA_2.........: ' + (c.ABA_ANTIGA_2 || '— VAZIO —'),
   ];
+
+  // Distinguir "configurado" de "caiu no padrão" é o ponto do diagnóstico.
+  // Uma propriedade esquecida não dá erro em lugar nenhum: o script segue
+  // com o valor genérico e simplesmente para de achar os seus e-mails.
+  const usandoPadrao = Object.keys(PADRAO).filter(function (k) {
+    return k !== 'TOKEN' && PADRAO[k] !== '' && String(c[k]) === String(PADRAO[k]);
+  });
+  if (usandoPadrao.length) {
+    linhas.push('');
+    linhas.push('⚠ Ainda no valor padrão do código: ' + usandoPadrao.join(', '));
+    linhas.push('  Se algum desses devia ser seu, ele não foi salvo nas propriedades.');
+  }
+
   if (!c.TOKEN) {
     linhas.push('');
     linhas.push('⚠ Sem TOKEN o app do celular não consegue falar com a planilha.');
