@@ -26,6 +26,13 @@
 //
 // Rode `diagnostico()` no editor para ver o que está preenchido.
 
+/*
+ * Sobe de 1 a cada mudança que exige colar este arquivo de novo no editor.
+ * `diagnostico()` imprime na primeira linha, então dá para conferir se a
+ * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
+ */
+const VERSAO = 5;
+
 const PADRAO = {
   TOKEN: '',
 
@@ -72,6 +79,8 @@ function diagnostico() {
   const c = cfg();
   const esconde = function (v) { return v ? 'definido (' + String(v).length + ' caracteres)' : '— VAZIO —'; };
   const linhas = [
+    'Code.gs versão ' + VERSAO,
+    '',
     'TOKEN................: ' + esconde(c.TOKEN),
     'TELEGRAM_BOT_TOKEN...: ' + esconde(c.TELEGRAM_BOT_TOKEN),
     'TELEGRAM_CHAT_ID.....: ' + esconde(c.TELEGRAM_CHAT_ID),
