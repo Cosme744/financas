@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 6;
+const VERSAO = 7;
 
 const PADRAO = {
   TOKEN: '',
@@ -916,6 +916,20 @@ function montarPainel() {
       return 'B' + linha[rotulo];
     })];
   });
+
+  /*
+   * Apaga tudo antes de escrever.
+   *
+   * Sem isto, cada execução herda a sujeira da anterior: o verde fica na
+   * linha que era certa ontem, e — pior — uma célula que já entrou em
+   * referência circular guarda o #REF! mesmo depois de receber uma fórmula
+   * boa. Reescrever por cima não desfaz esse estado; apagar a célula desfaz.
+   *
+   * O Painel é gerado inteiro por esta função, então não há nada seu para
+   * preservar. Se quiser anotar algo, use outra aba.
+   */
+  p.clear();
+  try { p.getRange('A1:B1').breakApart(); } catch (e) { /* não estava mesclada */ }
 
   p.getRange(1, 1, resolvidas.length, 2).setValues(resolvidas);
 
