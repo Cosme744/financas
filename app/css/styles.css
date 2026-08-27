@@ -219,3 +219,37 @@ label.troca { display: flex; align-items: flex-start; gap: 12px; cursor: pointer
 label.troca input { width: 22px; height: 22px; flex: none; margin-top: 2px; accent-color: var(--acento); }
 label.troca span { font-size: 15px; }
 label.troca small { display: block; color: var(--texto-fraco); font-size: 12.5px; margin-top: 4px; }
+
+/* ---------- par de números do dia ---------- */
+.duplo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.duplo .cartao { margin-bottom: 0; }
+.mini { text-align: center; padding: 14px 10px; }
+.mini .rotulo {
+  font-size: 11px; color: var(--texto-fraco);
+  text-transform: uppercase; letter-spacing: .9px;
+}
+.mini-valor {
+  font-size: 25px; font-weight: 700; margin: 6px 0 2px;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.mini-valor.neg { color: var(--estourado); }
+.mini-valor.atencao-txt { color: var(--atencao); }
+.mini-sub { font-size: 11.5px; color: var(--texto-fraco); }
+
+/* ---------- extrato agrupado por dia ---------- */
+.dia-cab {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin: 16px 0 2px; padding-top: 12px; border-top: 1px solid var(--borda);
+  font-size: 12px; text-transform: uppercase; letter-spacing: .9px;
+  color: var(--texto-fraco); font-weight: 600;
+}
+.dia-cab:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.dia-cab .num { font-size: 13px; letter-spacing: 0; }
+
+/* ---------- futuro ---------- */
+.termina { font-size: 13px; color: var(--ok); margin: -4px 0 14px 2px; }
+.linha.total { border-top: 1px solid var(--borda); border-bottom: 0; margin-top: 4px; padding-top: 13px; }
+
+.alerta { border-color: var(--atencao); }
+.alerta b { color: var(--atencao); }
+.alerta p { margin: 8px 0 0; font-size: 14px; color: var(--texto-fraco); line-height: 1.45; }

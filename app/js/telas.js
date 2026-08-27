@@ -1,11 +1,34 @@
 // telas.js — renderização. Cada função devolve HTML; os eventos são ligados depois.
 
-import { calcular, porCategoria, doMes, projecao, liquido, chaveMes } from './engine.js';
+import { calcular, porCategoria, doMes, doDia, porDia, projecao, faixas, liquido,
+         chaveMes, gastoDoDia, gastoPorQuis, CATEGORIA_QUIS } from './engine.js';
 import * as store from './store.js';
 
+/*
+ * Sete, e cada uma com uma regra que decide sozinha.
+ *
+ * Eram dez, e as dez brigavam entre si: "Mercado" e "Comida" disputavam a
+ * mesma compra, "Carro" e "Transporte" o mesmo abastecimento, "Lazer" e
+ * "Compras" o mesmo impulso. Categoria ambígua custa caro justamente onde o
+ * app precisa ser rápido — parado no caixa, decidindo.
+ *
+ *   Mercado ....... comida que você leva para casa
+ *   Comer fora .... comida que você não leva (restaurante, lanche, delivery)
+ *   Transporte .... combustível, passagem, app, estacionamento
+ *   Casa .......... manutenção, limpeza, conta avulsa
+ *   Saúde ......... farmácia, consulta, exame
+ *   Por que eu quis  o que não precisava
+ *   Outros ........ o que sobrou
+ *
+ * Sumiram "Assinaturas" e "Carro" porque não eram categorias de lançamento:
+ * o que se repete todo mês é COMPROMISSO, e é lá que streaming e prestação do
+ * carro pertencem — cadastrados uma vez, contados sozinhos daí em diante.
+ *
+ * Lançamento antigo continua com o nome antigo; nada é reescrito para trás.
+ */
 export const CATEGORIAS = [
-  'Mercado', 'Comida', 'Transporte', 'Casa', 'Saúde',
-  'Lazer', 'Compras', 'Assinaturas', 'Carro', 'Outros',
+  'Mercado', 'Comer fora', 'Transporte', 'Casa', 'Saúde',
+  CATEGORIA_QUIS, 'Outros',
 ];
 
 export const METODOS = [
@@ -55,8 +78,20 @@ export function home(ref) {
 
   const orcamento = c.receita - c.meta;
   const usado = orcamento > 0 ? Math.min(100, (c.gastoTotal / orcamento) * 100) : 100;
-  const hojeDia = new Date().getDate();
-  const recentes = doMes(transacoes, ref).slice(0, 6);
+  const agora = new Date();
+  const hojeDia = agora.getDate();
+
+  // "Quanto já torrei hoje" é a segunda pergunta do dia, logo depois de
+  // "quanto posso". Ela some quando o mês exibido não é o corrente: gasto de
+  // hoje não diz nada sobre março.
+  const ehMesCorrente = chaveMes(ref) === chaveMes(agora);
+  const gastoHoje = ehMesCorrente ? gastoDoDia(transacoes, agora) : 0;
+  const lancHoje = ehMesCorrente ? doDia(transacoes, agora).filter((t) => t.valor < 0) : [];
+  const quis = gastoPorQuis(transacoes, ref);
+
+  const recentes = ehMesCorrente && lancHoje.length
+    ? lancHoje
+    : doMes(transacoes, ref).slice(0, 6);
 
   return `
   <section class="cartao destaque ${c.status}">
@@ -68,6 +103,22 @@ export function home(ref) {
     <div class="barra"><i style="width:${usado}%"></i></div>
     <div class="sub">${dinheiro(c.gastoTotal)} gastos de ${dinheiro(orcamento)}</div>
   </section>
+
+  ${ehMesCorrente ? `
+  <section class="duplo">
+    <div class="cartao mini">
+      <div class="rotulo">Gastei hoje</div>
+      <div class="mini-valor ${gastoHoje ? 'neg' : ''}">${dinheiro(gastoHoje)}</div>
+      <div class="mini-sub">${lancHoje.length
+        ? `${lancHoje.length} ${lancHoje.length === 1 ? 'lançamento' : 'lançamentos'}`
+        : 'nada ainda'}</div>
+    </div>
+    <div class="cartao mini">
+      <div class="rotulo">Porque eu quis</div>
+      <div class="mini-valor ${quis ? 'atencao-txt' : ''}">${dinheiro(quis)}</div>
+      <div class="mini-sub">no mês</div>
+    </div>
+  </section>` : ''}
 
   <section class="cartao linhas">
     <div class="linha"><span class="nome">Entrou</span>
@@ -85,7 +136,7 @@ export function home(ref) {
   </section>
 
   ${c.aPagar.length ? `
-  <h2 class="titulo">A pagar &middot; ${c.aPagar.length}</h2>
+  <h2 class="titulo">A pagar &middot; ${c.aPagar.length} &middot; ${dinheiro(c.pendentes)}</h2>
   <section class="cartao linhas">
     ${c.aPagar.map((x) => `
       <div class="linha">
@@ -98,7 +149,7 @@ export function home(ref) {
   </section>` : ''}
 
   ${recentes.length ? `
-  <h2 class="titulo">Últimos lançamentos</h2>
+  <h2 class="titulo">${ehMesCorrente && lancHoje.length ? 'O que gastei hoje' : 'Últimos lançamentos'}</h2>
   <section class="cartao linhas">${recentes.map(lancamentoHTML).join('')}</section>` : ''}`;
 }
 
@@ -232,31 +283,76 @@ export function ligarLancar(raiz, rerender, onSalvo, abrirScanner) {
 
 /* ===================== MÊS ===================== */
 
+const DIA_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+/** "qui, 27/08" — o dia da semana é o que faz a data virar lembrança. */
+function cabecalhoDia(iso) {
+  const [a, m, d] = String(iso).split('-').map(Number);
+  const dt = new Date(a, m - 1, d);
+  const hoje = new Date();
+  const ontem = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1);
+  const igual = (x, y) => x.toDateString() === y.toDateString();
+  if (igual(dt, hoje)) return 'hoje';
+  if (igual(dt, ontem)) return 'ontem';
+  return `${DIA_SEMANA[dt.getDay()]}, ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+}
+
 export function mes(ref) {
-  const { transacoes } = store.estado();
+  const { config, transacoes } = store.estado();
   const lista = doMes(transacoes, ref);
   if (!lista.length) return '<div class="vazio">Nenhum lançamento neste mês.</div>';
 
-  const cats = porCategoria(transacoes, ref);
+  const c = calcular(transacoes, config, ref);
+  const quis = gastoPorQuis(transacoes, ref);
+
+  // Só o dia a dia entra na disputa por categoria. Compromisso pago junto
+  // faria a fatura do cartão esmagar a lista inteira e esconder justamente o
+  // gasto sobre o qual você ainda pode decidir alguma coisa.
+  const cats = porCategoria(transacoes, ref, true);
   const maior = cats[0]?.total || 1;
   const soma = cats.reduce((s, x) => s + x.total, 0) || 1;
 
+  const dias = porDia(transacoes, ref);
+
   return `
-  <h2 class="titulo">Por categoria</h2>
+  <h2 class="titulo">Para onde o mês foi</h2>
   <section class="cartao linhas">
-    ${cats.map((c) => `
-      <div class="linha">
-        <span class="nome">${escapar(c.categoria)}
-          <small>${Math.round((c.total / soma) * 100)}% do mês</small></span>
-        <span class="num neg">${dinheiro(c.total)}</span>
-      </div>
-      <div class="barra" style="margin:0 0 8px">
-        <i style="width:${(c.total / maior) * 100}%;background:var(--acento)"></i>
-      </div>`).join('')}
+    <div class="linha"><span class="nome">Entrou</span>
+      <span class="num pos">${dinheiro(c.receita)}</span></div>
+    <div class="linha"><span class="nome">Compromissos pagos
+      <small>${dinheiro(c.pendentes)} ainda a vencer</small></span>
+      <span class="num neg">${dinheiro(c.pagos - c.reembolsado)}</span></div>
+    <div class="linha"><span class="nome">Dia a dia
+      ${quis ? `<small>destes, ${dinheiro(quis)} porque eu quis</small>` : ''}</span>
+      <span class="num neg">${dinheiro(c.variaveis)}</span></div>
+    ${c.meta ? `<div class="linha"><span class="nome">Guardar<small>meta do mês</small></span>
+      <span class="num">${dinheiro(c.meta)}</span></div>` : ''}
   </section>
 
-  <h2 class="titulo">Todos os lançamentos (${lista.length})</h2>
-  <section class="cartao linhas">${lista.map(lancamentoHTML).join('')}</section>`;
+  ${cats.length ? `
+  <h2 class="titulo">Dia a dia por categoria</h2>
+  <section class="cartao">
+    ${cats.map((x) => `
+      <div class="linha">
+        <span class="nome">${escapar(x.categoria)}
+          <small>${Math.round((x.total / soma) * 100)}% do dia a dia</small></span>
+        <span class="num neg">${dinheiro(x.total)}</span>
+      </div>
+      <div class="barra" style="margin:0 0 8px">
+        <i style="width:${(x.total / maior) * 100}%;background:${
+          x.categoria === CATEGORIA_QUIS ? 'var(--atencao)' : 'var(--acento)'}"></i>
+      </div>`).join('')}
+  </section>` : ''}
+
+  <h2 class="titulo">Lançamentos &middot; ${lista.length}</h2>
+  <section class="cartao">
+    ${dias.map((d) => `
+      <div class="dia-cab">
+        <span>${cabecalhoDia(d.data)}</span>
+        <span class="num neg">${dinheiro(d.total)}</span>
+      </div>
+      ${d.itens.map(lancamentoHTML).join('')}`).join('')}
+  </section>`;
 }
 
 /* ===================== FUTURO ===================== */
@@ -272,8 +368,12 @@ export function futuro() {
   }
 
   const linhas = projecao(config, transacoes, 6);
-  const maior = Math.max(...linhas.map((l) => l.comprometido)) || 1;
+  const grupos = faixas(linhas);
+  const maior = Math.max(...grupos.map((g) => g.comprometido)) || 1;
   const alivioTotal = linhas[0].comprometido - linhas[linhas.length - 1].comprometido;
+
+  const agora = linhas[0];
+  const sobra = agora.sobra;
 
   return `
   ${alivioTotal > 0 ? `
@@ -283,27 +383,50 @@ export function futuro() {
     <div class="sub">por mês, conforme os parcelamentos terminam</div>
   </section>` : ''}
 
-  <h2 class="titulo">Próximos meses</h2>
+  <h2 class="titulo">Quanto os compromissos custam</h2>
   <section class="cartao">
-    ${linhas.map((l, i) => `
+    ${grupos.map((g, i) => `
       <div class="linha">
-        <span class="nome">${l.rotulo}
-          <small>${l.quantidade} ${l.quantidade === 1 ? 'compromisso' : 'compromissos'}${
-            l.alivio > 0 ? ' · <b style="color:var(--ok)">−' + dinheiro(l.alivio) + '</b>' : ''}</small>
+        <span class="nome">${g.rotulo}
+          <small>${g.quantidade} ${g.quantidade === 1 ? 'conta' : 'contas'}${
+            g.alivio > 0 ? ` · <b style="color:var(--ok)">${dinheiro(g.alivio)} a menos</b>` : ''}</small>
         </span>
-        <span class="num ${l.sobra < 0 ? 'neg' : 'pos'}">${dinheiro(l.sobra)}</span>
+        <span class="num neg">${dinheiro(g.comprometido)}</span>
       </div>
       <div class="barra" style="margin:0 0 10px">
-        <i style="width:${(l.comprometido / maior) * 100}%;background:${i === 0 ? 'var(--acento)' : 'var(--texto-fraco)'}"></i>
+        <i style="width:${(g.comprometido / maior) * 100}%;background:${
+          i === 0 ? 'var(--acento)' : 'var(--texto-fraco)'}"></i>
       </div>
-      ${l.terminando.length ? `<div style="font-size:13px;color:var(--ok);margin:-4px 0 12px 2px">
-        ✓ termina: ${l.terminando.map((t) => escapar(t.nome)).join(', ')}</div>` : ''}
+      ${g.terminando.length ? `<div class="termina">
+        ✓ termina ${escapar(g.fim.rotulo)}: ${g.terminando.map((t) => escapar(t.nome)).join(', ')}</div>` : ''}
     `).join('')}
-    <p style="color:var(--texto-fraco);font-size:12.5px;margin:6px 0 0">
-      Sobra estimada = renda − meta − compromissos − ${dinheiro(linhas[0].variavelEstimado)}
-      de gasto variável (sua média).
-    </p>
-  </section>`;
+  </section>
+
+  <h2 class="titulo">De onde sai a sobra</h2>
+  <section class="cartao linhas">
+    <div class="linha"><span class="nome">Renda do mês</span>
+      <span class="num pos">${dinheiro(config.renda || 0)}</span></div>
+    ${config.meta ? `<div class="linha"><span class="nome">Guardar<small>sua meta</small></span>
+      <span class="num neg">−${dinheiro(config.meta)}</span></div>` : ''}
+    <div class="linha"><span class="nome">Compromissos
+      <small>${agora.quantidade} contas, já sem o que te devolvem</small></span>
+      <span class="num neg">−${dinheiro(agora.comprometido)}</span></div>
+    <div class="linha"><span class="nome">Dia a dia
+      <small>sua média dos últimos meses</small></span>
+      <span class="num neg">−${dinheiro(agora.variavelEstimado)}</span></div>
+    <div class="linha total"><span class="nome"><b>Sobra estimada</b></span>
+      <span class="num ${sobra < 0 ? 'neg' : 'pos'}"><b>${dinheiro(sobra)}</b></span></div>
+  </section>
+
+  ${sobra < 0 ? `
+  <section class="cartao alerta">
+    <b>As contas não fecham neste ritmo.</b>
+    <p>Renda menos meta não cobre compromissos mais gasto médio — falta
+    ${dinheiro(Math.abs(sobra))} por mês. Ou a meta de guardar cede, ou o dia a
+    dia encolhe, ou algum compromisso sai.</p>
+    ${alivioTotal > 0 ? `<p>A conta melhora sozinha ${dinheiro(alivioTotal)} até
+    ${escapar(linhas[linhas.length - 1].rotulo)}, quando os parcelamentos terminarem.</p>` : ''}
+  </section>` : ''}`;
 }
 
 /* ===================== AJUSTES ===================== */

@@ -106,14 +106,89 @@ clasp clone <ID do projeto do Apps Script>   # gera .clasp.json, que o .gitignor
 clasp push                                    # manda o backend/ para a planilha
 ```
 
-> **O repositório é público, e de propósito.** Não há segredo no código:
-> a URL do Web App e o token são digitados por você em Ajustes e ficam
-> apenas no seu celular. O `.gitignore` mantém fora do repositório o arquivo
-> cujo nome é o seu token e os backups exportados pelo app.
+### Por que o repositório é público
+
+Não por descuido: **o GitHub Pages só publica de repositório público no plano
+gratuito.** Tornar este repositório privado derrubaria o app, e a alternativa
+seria um plano pago — que não é o combinado aqui.
+
+Então a regra é que **não existe segredo no código**. A URL do Web App e o
+token são digitados por você em Ajustes e ficam só no seu celular; as
+configurações do backend moram nas Propriedades do Script, dentro da sua conta
+Google. O `.gitignore` barra backups e credenciais do clasp.
+
+Como "tomar cuidado" não é defesa — segredo que entra no histórico do GitHub
+continua acessível mesmo depois de removido do arquivo —, há uma conferência
+automática antes de cada commit:
+
+```bash
+node scripts/segredos.js --instalar   # uma vez, por cópia do repositório
+```
+
+A partir daí todo `git commit` passa por [scripts/segredos.js](scripts/segredos.js),
+que barra token do backend, URL real do `/exec`, ID de planilha do Google,
+token de bot do Telegram, tópico do ntfy, credencial do clasp e backup de
+lançamentos. Para varrer tudo o que já está versionado:
+
+```bash
+node scripts/segredos.js --tudo
+```
 
 ---
 
-## 4. Avisos de conta a vencer
+## 4. O dia a dia
+
+A ideia é mexer no app quase nada. Uma vez por mês você abre **Ajustes**,
+confere quanto entra e quanto quer guardar, e sincroniza. O resto o app faz
+sozinho.
+
+**Hoje** responde as três perguntas do dia: quanto ainda dá para gastar, o que
+está pendente, e quanto já saiu hoje. Lançou, o número muda na hora — não
+depende de sincronizar, porque o celular é a fonte da verdade imediata e a
+planilha é o destino final.
+
+**Lançar** tem sete categorias, e cada uma decide sozinha:
+
+| | |
+|---|---|
+| **Mercado** | comida que você leva para casa |
+| **Comer fora** | restaurante, lanche, delivery, café |
+| **Transporte** | combustível, passagem, aplicativo, estacionamento |
+| **Casa** | manutenção, limpeza, conta avulsa |
+| **Saúde** | farmácia, consulta, exame |
+| **Por que eu quis** | o que não precisava |
+| **Outros** | o que sobrou |
+
+Eram dez, e as dez brigavam entre si: *Mercado* e *Comida* disputavam a mesma
+compra, *Carro* e *Transporte* o mesmo abastecimento, *Lazer* e *Compras* o
+mesmo impulso. Categoria ambígua custa caro justamente onde o app precisa ser
+rápido — parado no caixa, decidindo.
+
+*Assinaturas* e *Carro* sumiram porque não eram categorias de lançamento: o que
+se repete todo mês é **compromisso**, cadastrado uma vez e contado sozinho daí
+em diante.
+
+**Por que eu quis** é a única que responde a uma pergunta diferente. As outras
+dizem para onde o dinheiro foi; essa diz quanto dele você **escolheu** gastar.
+Por isso ela aparece em destaque na tela Hoje e em amarelo no gráfico do mês.
+Use quando quiser — o que não for marcado assim simplesmente não entra na conta.
+
+> Lançamento antigo continua com o nome antigo. Nada é reescrito para trás, então
+> por um mês ou dois as duas listas convivem no gráfico.
+
+**Mês** separa o que você já sabia que ia pagar (compromissos) do que decidiu
+gastar (dia a dia), porque misturar os dois deixa a lista inútil: a fatura do
+cartão sozinha esmaga o resto e a barra do almoço vira um fio invisível. O
+extrato vem agrupado por dia, com o total de cada um.
+
+**Futuro** junta meses seguidos que custam a mesma coisa numa faixa só, mostra
+quando cada parcelamento termina e quanto isso devolve por mês. No fim, a conta
+aberta da sobra — renda, menos meta, menos compromissos, menos sua média de
+gasto — para você ver de onde o número saiu em vez de ter que acreditar nele.
+
+---
+
+## 5. Avisos de conta a vencer
 
 Todo dia às 8h o script manda uma mensagem com o que está para vencer e quanto
 você ainda pode gastar. Escolha **um** canal em `CONFIG`:
@@ -133,11 +208,11 @@ Sem nenhum dos dois configurado, o aviso chega por e-mail.
 
 ---
 
-## 5. Lançar sem digitar
+## 6. Lançar sem digitar
 
 Duas camadas, e vale usar as duas — uma cobre o que a outra deixa passar.
 
-### 5.1 E-mail do banco (já pronto, custo zero)
+### 6.1 E-mail do banco (já pronto, custo zero)
 
 A cada 15 minutos o script varre o Gmail procurando e-mails de compra, extrai o
 valor e o estabelecimento, e lança na planilha já categorizado.
@@ -147,7 +222,7 @@ certa, procure no Gmail por uma compra recente e copie os termos que funcionaram
 
 Cada e-mail é lançado **no máximo uma vez** — a chave é o id da mensagem.
 
-### 5.2 Notificação do celular (cobre o que não vem por e-mail)
+### 6.2 Notificação do celular (cobre o que não vem por e-mail)
 
 Compra no crédito quase sempre gera um push do banco na hora. Um app de
 automação lê esse push e manda para o script — sem precisar de app nativo:
@@ -177,7 +252,7 @@ python -m http.server 8200 --directory backend
 Depois abra <http://localhost:8200/teste-parser.html>. A página também roda 12
 casos de referência a cada carregamento — se algum falhar, o parser regrediu.
 
-### 5.3 Open Finance (quando quiser o nível seguinte)
+### 6.3 Open Finance (quando quiser o nível seguinte)
 
 [Pluggy](https://pluggy.ai) ou Belvo conectam direto na conta do banco e trazem
 todas as transações, inclusive as que não geram push nem e-mail. É a opção mais

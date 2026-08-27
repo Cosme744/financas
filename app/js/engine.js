@@ -35,6 +35,48 @@ export const doMes = (transacoes, ref) => {
   return transacoes.filter((t) => String(t.data).slice(0, 7) === mes);
 };
 
+export const chaveDia = (d) => `${chaveMes(d)}-${String(d.getDate()).padStart(2, '0')}`;
+
+export const doDia = (transacoes, ref) => {
+  const dia = chaveDia(ref);
+  return transacoes.filter((t) => String(t.data).slice(0, 10) === dia);
+};
+
+/** Quanto saiu do bolso num dia. Compromisso pago não conta: já estava previsto. */
+export const gastoDoDia = (transacoes, ref) =>
+  doDia(transacoes, ref)
+    .filter((t) => t.valor < 0 && !t.compromissoId)
+    .reduce((s, t) => s + Math.abs(t.valor), 0);
+
+/**
+ * A categoria do que não precisava. Fica isolada no motor porque é a única
+ * que responde a uma pergunta diferente das outras: não "onde foi o dinheiro"
+ * e sim "quanto disso eu escolhi gastar".
+ */
+export const CATEGORIA_QUIS = 'Por que eu quis';
+
+export const gastoPorQuis = (transacoes, ref) =>
+  doMes(transacoes, ref)
+    .filter((t) => t.valor < 0 && t.categoria === CATEGORIA_QUIS)
+    .reduce((s, t) => s + Math.abs(t.valor), 0);
+
+/** Agrupa os lançamentos por dia, do mais recente para o mais antigo. */
+export function porDia(transacoes, ref) {
+  const mapa = new Map();
+  for (const t of doMes(transacoes, ref)) {
+    const d = String(t.data).slice(0, 10);
+    if (!mapa.has(d)) mapa.set(d, []);
+    mapa.get(d).push(t);
+  }
+  return [...mapa.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([data, itens]) => ({
+      data,
+      itens,
+      total: itens.filter((t) => t.valor < 0).reduce((s, t) => s + Math.abs(t.valor), 0),
+    }));
+}
+
 /* ---------- parcelas ---------- */
 
 /**
@@ -182,11 +224,56 @@ export function projecao(config, transacoes, meses = 6, hoje = new Date()) {
   return linhas;
 }
 
-/** Total gasto por categoria no mês, do maior para o menor. */
-export function porCategoria(transacoes, ref = new Date()) {
+/**
+ * Junta meses seguidos que custam a mesma coisa numa faixa só.
+ *
+ * Sete linhas repetindo três valores é o que fazia a tela de futuro parecer
+ * bagunçada: o olho procura a diferença e não acha, porque quase não há.
+ * Uma faixa por patamar deixa visível o que de fato importa — quando a conta
+ * muda, e quanto ela cai.
+ */
+export function faixas(linhas) {
+  const grupos = [];
+  for (const l of linhas) {
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && Math.abs(ultimo.comprometido - l.comprometido) < 0.005) {
+      ultimo.fim = l;
+      ultimo.meses.push(l);
+      // Quem termina no último mês da faixa é quem faz a faixa acabar.
+      if (l.terminando.length) ultimo.terminando = l.terminando;
+    } else {
+      grupos.push({
+        inicio: l, fim: l, meses: [l],
+        comprometido: l.comprometido,
+        sobra: l.sobra,
+        quantidade: l.quantidade,
+        variavelEstimado: l.variavelEstimado,
+        terminando: l.terminando,
+        alivio: l.alivio,
+      });
+    }
+  }
+
+  return grupos.map((g) => ({
+    ...g,
+    rotulo: g.inicio === g.fim ? g.inicio.rotulo : `${g.inicio.rotulo} – ${g.fim.rotulo}`,
+  }));
+}
+
+/**
+ * Total gasto por categoria no mês, do maior para o menor.
+ *
+ * `soVariaveis` existe porque misturar os dois tipos de gasto numa lista só
+ * torna a lista inútil: a fatura do cartão sozinha esmaga todo o resto, e a
+ * barra do almoço de R$ 22 vira um fio invisível ao lado dela. Compromisso
+ * você já sabe que tem; o que a lista precisa responder é para onde foi o
+ * dinheiro que você escolheu gastar.
+ */
+export function porCategoria(transacoes, ref = new Date(), soVariaveis = false) {
   const acc = new Map();
   for (const t of doMes(transacoes, ref)) {
     if (t.valor >= 0) continue;
+    if (soVariaveis && t.compromissoId) continue;
     const k = t.categoria || 'Sem categoria';
     acc.set(k, (acc.get(k) || 0) + Math.abs(t.valor));
   }
