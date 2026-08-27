@@ -82,16 +82,30 @@ function diagnostico() {
     'ABA_ANTIGA_2.........: ' + (c.ABA_ANTIGA_2 || '— VAZIO —'),
   ];
 
-  // Distinguir "configurado" de "caiu no padrão" é o ponto do diagnóstico.
-  // Uma propriedade esquecida não dá erro em lugar nenhum: o script segue
-  // com o valor genérico e simplesmente para de achar os seus e-mails.
-  const usandoPadrao = Object.keys(PADRAO).filter(function (k) {
-    return k !== 'TOKEN' && PADRAO[k] !== '' && String(c[k]) === String(PADRAO[k]);
+  // A pergunta certa é "isto está salvo nas propriedades?", não "isto é
+  // igual ao padrão?".
+  //
+  // Comparar com o padrão dá alarme falso para quem preencheu os dois
+  // lugares: valor salvo igual ao valor do arquivo parece padrão, e não é.
+  // Olhar direto o que está guardado responde sem ambiguidade — e é
+  // exatamente o que decide se atualizar o arquivo vai apagar a sua
+  // configuração ou não.
+  let salvas = {};
+  try { salvas = PropertiesService.getScriptProperties().getProperties(); } catch (e) {}
+
+  const faltando = Object.keys(PADRAO).filter(function (k) {
+    return !salvas[k] || String(salvas[k]).trim() === '';
   });
-  if (usandoPadrao.length) {
+
+  if (faltando.length) {
     linhas.push('');
-    linhas.push('⚠ Ainda no valor padrão do código: ' + usandoPadrao.join(', '));
-    linhas.push('  Se algum desses devia ser seu, ele não foi salvo nas propriedades.');
+    linhas.push('Fora das propriedades, valendo o que está escrito no arquivo:');
+    linhas.push('  ' + faltando.join(', '));
+    linhas.push('  Tudo bem se for de propósito. Mas o que estiver só no arquivo');
+    linhas.push('  some quando você colar uma versão nova do Code.gs.');
+  } else {
+    linhas.push('');
+    linhas.push('✓ Tudo vem das propriedades. Atualizar o Code.gs é seguro.');
   }
 
   if (!c.TOKEN) {
