@@ -153,14 +153,71 @@ export function home(ref) {
   <section class="cartao linhas">${recentes.map(lancamentoHTML).join('')}</section>` : ''}`;
 }
 
+/* A linha inteira é o alvo do toque: alvo grande, e nada de ícone de lápis
+   competindo por espaço num extrato que já é denso. */
 const lancamentoHTML = (t) => `
-  <div class="linha">
+  <div class="linha editavel" data-editar="${t.id}" role="button" tabindex="0">
     <span class="nome">${escapar(t.categoria || 'Sem categoria')}
       <small>${diaBR(t.data)}${t.metodo ? ' · ' + (NOME_METODO[t.metodo] || escapar(t.metodo)) : ''}${
         t.nota ? ' · ' + escapar(t.nota) : ''}${t.auto ? ' · auto' : ''}</small>
     </span>
     <span class="num ${t.valor < 0 ? 'neg' : 'pos'}">${dinheiro(t.valor)}</span>
   </div>`;
+
+/* ===================== EDITAR LANÇAMENTO ===================== */
+
+/**
+ * Painel de edição, aberto por cima da tela atual.
+ *
+ * Só existe porque lançar rápido e lançar certo são coisas diferentes: o
+ * teclado da aba Lançar é feito para ser rápido, e erra. Sem poder corrigir,
+ * a saída seria abrir a planilha no computador — exatamente o que o app
+ * existe para evitar.
+ */
+export function painelEditar(t) {
+  const v = Math.abs(t.valor).toFixed(2).replace('.', ',');
+  const cats = [...new Set([...CATEGORIAS, t.categoria].filter(Boolean))];
+  return `
+  <div class="folha-fundo" id="fecharEdicao"></div>
+  <div class="folha">
+    <div class="folha-topo">
+      <b>Editar lançamento</b>
+      <button class="chip" id="fecharEdicaoX" aria-label="Fechar">✕</button>
+    </div>
+
+    <div class="tipo">
+      <button data-etipo="saida" class="${t.valor < 0 ? 'on' : ''}">Gasto</button>
+      <button data-etipo="entrada" class="${t.valor >= 0 ? 'on' : ''}">Entrada</button>
+    </div>
+
+    <label class="campo"><span>Valor (R$)</span>
+      <input type="text" inputmode="decimal" id="eValor" value="${v}"></label>
+
+    <label class="campo"><span>Data</span>
+      <input type="date" id="eData" value="${escapar(String(t.data).slice(0, 10))}"></label>
+
+    <div class="rotulo-campo">Como pagou</div>
+    <div class="chips">
+      ${METODOS.map((m) =>
+        `<button class="chip ${t.metodo === m.id ? 'on' : ''}" data-emetodo="${m.id}">${m.nome}</button>`).join('')}
+    </div>
+
+    <div class="rotulo-campo">Categoria</div>
+    <div class="chips">
+      ${cats.map((cat) =>
+        `<button class="chip ${t.categoria === cat ? 'on' : ''}" data-ecat="${escapar(cat)}">${escapar(cat)}</button>`).join('')}
+    </div>
+
+    <label class="campo" style="margin-top:16px"><span>Descrição</span>
+      <input id="eNota" value="${escapar(t.nota || '')}" placeholder="opcional"></label>
+
+    ${t.compromissoId ? `<p class="aviso-edicao">Este lançamento pagou um compromisso.
+      Apagá-lo faz a conta voltar a aparecer como a vencer.</p>` : ''}
+
+    <button class="principal" id="eSalvar">Salvar</button>
+    <button class="secundario perigo" id="eApagar">Apagar lançamento</button>
+  </div>`;
+}
 
 /* ===================== LANÇAR ===================== */
 
@@ -448,17 +505,24 @@ export function ajustes() {
   <h2 class="titulo">Compromissos (${comps.length})</h2>
   <section class="cartao linhas">
     ${comps.length ? comps.map((c) => `
-      <div class="linha">
+      <div class="linha editavel" data-comp="${c.id}" role="button" tabindex="0">
         <span class="nome">${escapar(c.nome)}
-          <small>dia ${c.dia} · ${c.parcelas ? c.parcelas + 'x desde ' + c.inicio : 'todo mês'}${
-            c.reembolso ? ' · reembolso ' + dinheiro(c.reembolso) : ''}</small></span>
-        <span><span class="num neg">${dinheiro(c.valor)}</span>
-          <button class="chip" data-remover="${c.id}" aria-label="Remover">✕</button></span>
+          <small>dia ${c.dia} · ${c.parcelas ? c.parcelas + 'x desde ' + escapar(c.inicio || '?') : 'todo mês'}</small>
+          ${c.extraPrimeira ? `<small>1ª parcela ${dinheiro(c.valor + c.extraPrimeira)} — inclui ${dinheiro(c.extraPrimeira)} cobrados uma vez</small>` : ''}
+          ${c.reembolsoTotal
+            ? '<small class="passagem">devolvem o valor cheio · R$ 0,00 do seu bolso</small>'
+            : (c.reembolso ? `<small class="passagem">devolvem ${dinheiro(c.reembolso)} · ${dinheiro(c.valor - c.reembolso)} do seu bolso</small>` : '')}
+        </span>
+        <span class="num neg">${dinheiro(c.valor)}</span>
       </div>`).join('')
       : '<div style="color:var(--texto-fraco);font-size:14px">Nada cadastrado ainda.</div>'}
   </section>
 
-  <section class="cartao">
+  <section class="cartao" id="formComp">
+    <div class="folha-topo"><b id="cTitulo">Novo compromisso</b>
+      <button class="chip" id="cCancelar" hidden aria-label="Cancelar">✕</button></div>
+    <input type="hidden" id="cId" value="">
+
     <label class="campo"><span>Nome</span>
       <input id="cNome" placeholder="Aluguel, financiamento, mensalidade..."></label>
     <div style="display:flex;gap:8px">
@@ -473,9 +537,26 @@ export function ajustes() {
       <label class="campo" style="flex:1"><span>1ª parcela</span>
         <input type="month" id="cInicio" value="${hoje}"></label>
     </div>
-    <label class="campo"><span>Alguém te devolve parte? (R$)</span>
-      <input type="number" inputmode="decimal" id="cReembolso" placeholder="0,00 — ex: o que sua mãe paga"></label>
+
+    <label class="campo"><span>Cobrança extra só na 1ª parcela (R$)</span>
+      <input type="number" inputmode="decimal" id="cExtra" placeholder="0,00">
+      <small class="ajuda">Seguro de consignado, taxa de adesão, entrada — o que
+      é cobrado uma vez só e faz a primeira parcela vir maior que as outras.</small></label>
+
+    <div class="rotulo-campo">Alguém te devolve esse dinheiro?</div>
+    <div class="chips" style="margin-bottom:10px">
+      <button class="chip" data-reemb="nao">Não, é meu gasto</button>
+      <button class="chip" data-reemb="total">Sim, o valor cheio</button>
+      <button class="chip" data-reemb="parte">Sim, uma parte</button>
+    </div>
+    <label class="campo" id="campoReembolso" hidden><span>Quanto te devolvem por mês (R$)</span>
+      <input type="number" inputmode="decimal" id="cReembolso" placeholder="0,00"></label>
+    <p class="ajuda" id="ajudaReembolso">Empréstimo que você pegou para outra pessoa
+    entra aqui: sai da sua conta, mas não é seu gasto. Marcado assim, o app
+    desconta do "posso gastar" só o que sobra para você.</p>
+
     <button class="secundario" id="addComp">Adicionar compromisso</button>
+    <button class="secundario perigo" id="delComp" hidden>Apagar compromisso</button>
   </section>
 
   <h2 class="titulo">Planilha</h2>

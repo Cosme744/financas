@@ -50,16 +50,28 @@ export async function sincronizar() {
     await chamar('gravarConfig', { config: { renda, meta, compromissos } });
   }
 
+  // As três operações vão em chamadas separadas, e cada uma confirma o que
+  // gravou. Só o que a planilha confirmou sai da fila — se a rede cair no
+  // meio, o que faltou tenta de novo na próxima, sem duplicar nem perder.
   const fila = pendentes();
-  if (fila.length) {
-    const { salvos } = await chamar('inserir', { transacoes: fila });
+
+  if (fila.inserir.length) {
+    const { salvos } = await chamar('inserir', { transacoes: fila.inserir });
+    marcarEnviados(salvos);
+  }
+  if (fila.atualizar.length) {
+    const { salvos } = await chamar('atualizar', { transacoes: fila.atualizar });
+    marcarEnviados(salvos);
+  }
+  if (fila.apagar.length) {
+    const { salvos } = await chamar('apagar', { ids: fila.apagar });
     marcarEnviados(salvos);
   }
 
   const { transacoes } = await chamar('listar', { desde: inicioDoMesPassado() });
   substituirTransacoes(transacoes);
 
-  return { enviados: fila.length, recebidos: transacoes.length, baixouConfig };
+  return { enviados: fila.total, recebidos: transacoes.length, baixouConfig };
 }
 
 function inicioDoMesPassado() {

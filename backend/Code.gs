@@ -90,13 +90,13 @@ function diagnostico() {
   return texto;
 }
 
-const ABAS = { LANC: 'Lancamentos', COMP: 'Compromissos', CFG: 'Config', LOG: 'Auto' };
+const ABAS = { LANC: 'Lancamentos', COMP: 'Compromissos', CFG: 'Config', LOG: 'Auto', PAINEL: 'Painel' };
 
 const COLUNAS = ['id', 'data', 'valor', 'categoria', 'conta', 'nota', 'metodo',
                  'compromissoId', 'reembolso', 'origem', 'criadoEm'];
 
 const COLUNAS_COMP = ['id', 'nome', 'valor', 'dia', 'categoria', 'conta',
-                      'inicio', 'parcelas', 'reembolso'];
+                      'inicio', 'parcelas', 'reembolso', 'extraPrimeira', 'reembolsoTotal'];
 
 // ============================================================
 // API
@@ -115,6 +115,8 @@ function doPost(e) {
 
     switch (req.acao) {
       case 'inserir': return json({ ok: true, salvos: inserir(req.transacoes || []).ids });
+      case 'atualizar': return json({ ok: true, salvos: atualizar(req.transacoes || []) });
+      case 'apagar': return json({ ok: true, salvos: apagar(req.ids || []) });
       case 'listar':  return json({ ok: true, transacoes: listar(req.desde) });
       case 'config':  return json({ ok: true, config: lerConfig() });
       case 'gravarConfig': return json({ ok: true, compromissos: gravarConfig(req.config || {}) });
@@ -174,6 +176,61 @@ function inserir(transacoes) {
     s.getRange(s.getLastRow() + 1, 1, linhas.length, COLUNAS.length).setValues(linhas);
   }
   return { ids: transacoes.map((t) => t.id), novos: novas.length };
+}
+
+/**
+ * Reescreve linhas que já existem, casando pelo id.
+ *
+ * Uma leitura e uma escrita por linha alterada, e nada é criado: se o id
+ * sumiu da planilha (você apagou a linha à mão), a edição é descartada em
+ * silêncio em vez de ressuscitar o lançamento.
+ */
+function atualizar(transacoes) {
+  if (!transacoes.length) return [];
+  const s = aba(ABAS.LANC, COLUNAS);
+  const ids = idsExistentes(s);
+
+  const linha = {};
+  ids.forEach(function (id, i) { linha[id] = i + 2; });   // +2: cabeçalho e base 1
+
+  const feitos = [];
+  transacoes.forEach(function (t) {
+    const n = linha[t.id];
+    if (!n) return;
+    const valores = COLUNAS.map(function (c) {
+      return t[c] !== undefined && t[c] !== null ? t[c] : '';
+    });
+    s.getRange(n, 1, 1, COLUNAS.length).setValues([valores]);
+    feitos.push(t.id);
+  });
+  return feitos;
+}
+
+/**
+ * Apaga linhas pelo id, de baixo para cima.
+ *
+ * De baixo para cima porque apagar a linha 5 muda o número de todas as
+ * seguintes: na ordem direta, o segundo id apagaria a linha errada.
+ */
+function apagar(ids) {
+  if (!ids.length) return [];
+  const s = aba(ABAS.LANC, COLUNAS);
+  const existentes = idsExistentes(s);
+
+  const alvo = {};
+  ids.forEach(function (id) { alvo[id] = true; });
+
+  const numeros = [];
+  existentes.forEach(function (id, i) {
+    if (alvo[id]) numeros.push(i + 2);
+  });
+
+  numeros.sort(function (a, b) { return b - a; }).forEach(function (n) {
+    s.deleteRow(n);
+  });
+
+  // Devolve todos os ids pedidos: o que já não estava lá também está resolvido.
+  return ids;
 }
 
 function idsExistentes(s) {
@@ -237,6 +294,13 @@ function lerConfig() {
             ? Utilities.formatDate(r[6], fuso(), 'yyyy-MM') : r[6]).slice(0, 7) : null,
           parcelas: Number(r[7]) || null,
           reembolso: Number(r[8]) || 0,
+          // Cobrança que só vem na 1ª parcela — seguro de consignado, taxa
+          // de adesão, entrada. Sem isto, um parcelado de primeira parcela
+          // inflada só pode ser descrito errado.
+          extraPrimeira: Number(r[9]) || 0,
+          // Quem pegou o dinheiro devolve o valor cheio: o compromisso passa
+          // pela sua conta sem nunca ser seu.
+          reembolsoTotal: r[10] === true || String(r[10]).toUpperCase() === 'TRUE',
         }))
     : [];
 
@@ -269,6 +333,7 @@ function gravarConfig(cfg) {
       x.id, x.nome, Number(x.valor) || 0, Number(x.dia) || 1,
       x.categoria || x.nome, x.conta || '',
       x.inicio || '', x.parcelas || '', Number(x.reembolso) || 0,
+      Number(x.extraPrimeira) || 0, x.reembolsoTotal === true,
     ]));
   }
   return lista.length;
@@ -690,13 +755,112 @@ function instalar() {
   if (c.getLastRow() < 2) { c.appendRow(['renda', 0]); c.appendRow(['meta', 0]); }
   aba(ABAS.LOG, ['quando', 'origem', 'detalhe']);
 
+  formatar();
+  montarPainel();
+
   // Remove gatilhos antigos para não duplicar em reinstalações.
   ScriptApp.getProjectTriggers().forEach((t) => ScriptApp.deleteTrigger(t));
 
   ScriptApp.newTrigger('varrerGmail').timeBased().everyMinutes(15).create();
   ScriptApp.newTrigger('avisarDoDia').timeBased().atHour(8).everyDays(1).create();
 
-  const msg = 'Abas e gatilhos criados. Agora publique como Web App.';
+  const msg = 'Abas, formatação, painel e gatilhos criados. Agora publique como Web App.';
   console.log(msg);
   return msg;
+}
+
+// ============================================================
+// Aparência — para a planilha continuar legível no computador
+// ============================================================
+
+/**
+ * Deixa a aba Lancamentos apresentável.
+ *
+ * O app escreve valores crus, e valor cru numa planilha é ilegível: data vira
+ * número de série, dinheiro perde o R$ e o alinhamento. Isto roda uma vez e
+ * vale para tudo o que for gravado depois, porque o formato é da coluna
+ * inteira, não das linhas existentes.
+ *
+ * Pode rodar de novo quando quiser — não mexe em nenhum dado.
+ */
+function formatar() {
+  const s = aba(ABAS.LANC, COLUNAS);
+  const n = Math.max(s.getMaxRows() - 1, 1);
+
+  s.getRange(1, 1, 1, COLUNAS.length)
+    .setFontWeight('bold')
+    .setBackground('#1f3d2b')
+    .setFontColor('#ffffff');
+  s.setFrozenRows(1);
+
+  const col = function (nome) { return COLUNAS.indexOf(nome) + 1; };
+  s.getRange(2, col('data'), n, 1).setNumberFormat('dd/mm/yyyy');
+  s.getRange(2, col('valor'), n, 1).setNumberFormat('R$ #,##0.00;[RED]-R$ #,##0.00');
+  s.getRange(2, col('criadoEm'), n, 1).setNumberFormat('@');
+
+  s.setColumnWidth(col('id'), 130);
+  s.setColumnWidth(col('data'), 95);
+  s.setColumnWidth(col('valor'), 110);
+  s.setColumnWidth(col('categoria'), 130);
+  s.setColumnWidth(col('nota'), 220);
+
+  const comp = aba(ABAS.COMP, COLUNAS_COMP);
+  comp.getRange(1, 1, 1, COLUNAS_COMP.length)
+    .setFontWeight('bold').setBackground('#1f3d2b').setFontColor('#ffffff');
+  comp.setFrozenRows(1);
+  const cc = function (nome) { return COLUNAS_COMP.indexOf(nome) + 1; };
+  const m = Math.max(comp.getMaxRows() - 1, 1);
+  comp.getRange(2, cc('valor'), m, 1).setNumberFormat('R$ #,##0.00');
+  comp.getRange(2, cc('reembolso'), m, 1).setNumberFormat('R$ #,##0.00');
+  comp.getRange(2, cc('extraPrimeira'), m, 1).setNumberFormat('R$ #,##0.00');
+
+  return 'Formatação aplicada.';
+}
+
+/**
+ * Monta o Painel com fórmulas vivas sobre a aba Lancamentos.
+ *
+ * São fórmulas de verdade, não valores calculados pelo script: o painel se
+ * atualiza sozinho a cada lançamento que o celular manda, sem depender de o
+ * script rodar de novo. É o mesmo espírito do painel verde que você já tinha,
+ * só que agora sobre dados que chegam sozinhos.
+ *
+ * Roda de novo sem medo: reescreve só as próprias células.
+ */
+function montarPainel() {
+  const p = aba(ABAS.PAINEL);
+  const L = "'" + ABAS.LANC + "'";
+
+  // O mês exibido é o corrente; trocar a célula B2 muda o painel inteiro.
+  const linhas = [
+    ['Painel', ''],
+    ['Mês', '=TEXT(TODAY();"yyyy-mm")'],
+    ['', ''],
+    ['Entrou', '=SUMIFS(' + L + '!C:C;' + L + '!C:C;">0";' + L + '!I:I;FALSE;' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
+    ['Reembolsos', '=SUMIFS(' + L + '!C:C;' + L + '!C:C;">0";' + L + '!I:I;TRUE;' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
+    ['Saiu', '=-SUMIFS(' + L + '!C:C;' + L + '!C:C;"<0";' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
+    ['Saldo do mês', '=B4-B6'],
+    ['', ''],
+    ['Renda cadastrada', '=IFERROR(VLOOKUP("renda";Config!A:B;2;FALSE);0)'],
+    ['Meta de guardar', '=IFERROR(VLOOKUP("meta";Config!A:B;2;FALSE);0)'],
+    ['Compromissos (líquido)', '=SUMPRODUCT(Compromissos!C2:C - IF(Compromissos!K2:K=TRUE;Compromissos!C2:C;Compromissos!I2:I))'],
+    ['Sobra prevista', '=B10-B11-B12'],
+    ['', ''],
+    ['Lançamentos no mês', '=COUNTIFS(' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
+    ['Última atualização', '=IFERROR(MAX(' + L + '!B:B);"—")'],
+  ];
+
+  p.getRange(1, 1, linhas.length, 2).setValues(linhas);
+
+  p.getRange('A1:B1').merge().setFontWeight('bold').setFontSize(14)
+    .setBackground('#1f3d2b').setFontColor('#ffffff').setHorizontalAlignment('center');
+  p.getRange('A4:A16').setFontWeight('bold');
+  p.getRange('B4:B13').setNumberFormat('R$ #,##0.00;[RED]-R$ #,##0.00');
+  p.getRange('B16').setNumberFormat('dd/mm/yyyy');
+  p.getRange('A7:B7').setBackground('#d9ead3');    // saldo do mês, em verde
+  p.getRange('A13:B13').setBackground('#d9ead3');  // sobra prevista, em verde
+  p.setColumnWidth(1, 200);
+  p.setColumnWidth(2, 150);
+
+  return 'Painel montado.';
 }

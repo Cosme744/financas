@@ -13,7 +13,9 @@ const PADRAO = {
     buscarCNPJ: true,   // trocar o CNPJ da nota pelo nome da loja (BrasilAPI)
   },
   transacoes: [],
-  fila: [],       // lançamentos ainda não enviados para a planilha
+  // Operações ainda não enviadas para a planilha: { op, id }.
+  // op é 'inserir', 'atualizar' ou 'apagar'.
+  fila: [],
   ultimaSync: null,
 };
 
@@ -29,6 +31,9 @@ function carregar() {
     return {
       ...structuredClone(PADRAO),
       ...salvo,
+      // A fila já foi uma lista de ids soltos. Bases antigas continuam
+      // funcionando: id solto vira uma inserção pendente.
+      fila: (salvo.fila || []).map((f) => (typeof f === 'string' ? { op: 'inserir', id: f } : f)),
       config: { ...PADRAO.config, ...(salvo.config || {}) },
     };
   } catch {
@@ -79,9 +84,46 @@ export function lancar({ valor, categoria, nota = '', metodo = 'pix', data,
     criadoEm: new Date().toISOString(),
   };
   dados.transacoes.unshift(t);
-  dados.fila.push(t.id);
+  enfileirar('inserir', t.id);
   persistir();
   return t;
+}
+
+/**
+ * Põe uma operação na fila sem duplicar e sem contradizer o que já está lá.
+ *
+ * A ordem importa: um lançamento criado e editado antes de subir continua
+ * sendo uma inserção — mandar "atualizar" algo que a planilha nunca viu daria
+ * erro. E apagar o que ainda não subiu simplesmente cancela a inserção, em
+ * vez de mandar a planilha apagar uma linha inexistente.
+ */
+function enfileirar(op, id) {
+  const i = dados.fila.findIndex((f) => f.id === id);
+  if (i === -1) { dados.fila.push({ op, id }); return; }
+
+  const atual = dados.fila[i].op;
+  if (op === 'apagar' && atual === 'inserir') dados.fila.splice(i, 1);
+  else if (op === 'apagar') dados.fila[i] = { op, id };
+  else if (atual === 'inserir') { /* segue inserção */ }
+  else dados.fila[i] = { op, id };
+}
+
+/** Edita um lançamento existente. */
+export function atualizar(id, patch) {
+  const t = dados.transacoes.find((x) => x.id === id);
+  if (!t) return null;
+  Object.assign(t, patch);
+  dados.transacoes.sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  enfileirar('atualizar', id);
+  persistir();
+  return t;
+}
+
+/** Apaga um lançamento aqui e, na próxima sincronização, na planilha. */
+export function apagar(id) {
+  dados.transacoes = dados.transacoes.filter((t) => t.id !== id);
+  enfileirar('apagar', id);
+  persistir();
 }
 
 /** A nota já foi lançada? Evita o susto de ver a mesma compra duas vezes. */
@@ -89,10 +131,8 @@ export function existe(id) {
   return dados.transacoes.some((t) => t.id === id);
 }
 
-export function remover(id) {
-  dados.transacoes = dados.transacoes.filter((t) => t.id !== id);
-  dados.fila = dados.fila.filter((f) => f !== id);
-  persistir();
+export function buscar(id) {
+  return dados.transacoes.find((t) => t.id === id) || null;
 }
 
 export function salvarConfig(patch) {
@@ -102,7 +142,8 @@ export function salvarConfig(patch) {
 
 /** Substitui o histórico pelo que veio da planilha, preservando o que ainda não subiu. */
 export function substituirTransacoes(lista) {
-  const pendentes = dados.transacoes.filter((t) => dados.fila.includes(t.id));
+  const idsFila = new Set(dados.fila.map((f) => f.id));
+  const pendentes = dados.transacoes.filter((t) => idsFila.has(t.id));
   const idsPendentes = new Set(pendentes.map((t) => t.id));
   const remotas = lista.filter((t) => !idsPendentes.has(t.id));
   dados.transacoes = [...pendentes, ...remotas].sort((a, b) => b.data.localeCompare(a.data));
@@ -112,12 +153,19 @@ export function substituirTransacoes(lista) {
 
 export function marcarEnviados(ids) {
   const enviados = new Set(ids);
-  dados.fila = dados.fila.filter((id) => !enviados.has(id));
+  dados.fila = dados.fila.filter((f) => !enviados.has(f.id));
   dados.ultimaSync = new Date().toISOString();
   persistir();
 }
 
+/** O que precisa subir, já separado por operação. */
 export function pendentes() {
-  const ids = new Set(dados.fila);
-  return dados.transacoes.filter((t) => ids.has(t.id));
+  const por = (op) => dados.fila.filter((f) => f.op === op).map((f) => f.id);
+  const cheias = (ids) => ids.map((id) => buscar(id)).filter(Boolean);
+  return {
+    inserir: cheias(por('inserir')),
+    atualizar: cheias(por('atualizar')),
+    apagar: por('apagar'),          // já não existem aqui; só o id importa
+    total: dados.fila.length,
+  };
 }

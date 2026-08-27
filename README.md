@@ -268,18 +268,44 @@ Uma estrutura só para tudo que se repete, tenha fim ou não:
 
 ```js
 { nome: 'Curso de inglês', valor: 200, dia: 10,
-  inicio: '2026-01',   // mês da 1ª parcela
-  parcelas: 12,        // null = indefinido (luz, internet, aluguel)
-  reembolso: 0 }       // quanto alguém te devolve desse valor
+  inicio: '2026-01',      // mês da 1ª parcela
+  parcelas: 12,           // null = indefinido (luz, internet, aluguel)
+  extraPrimeira: 0,       // cobrança que só vem na 1ª parcela
+  reembolso: 0,           // quanto alguém te devolve por mês
+  reembolsoTotal: false } // ou devolvem o valor cheio
 ```
 
 Com `parcelas` preenchido, o app sabe em que parcela você está, quanto falta
 pagar e **quando aquilo sai da sua vida**. Passada a última, some sozinho.
 
+### A primeira parcela que vem maior
+
+`extraPrimeira` existe por um motivo concreto: consignado costuma cobrar o
+seguro **uma única vez**, junto da primeira parcela. Sem esse campo, um
+parcelamento assim só pode ser descrito errado — ou você infla as 48 parcelas,
+ou finge que a primeira foi igual às outras. Os dois jeitos mentem sobre
+quanto você ainda vai pagar.
+
+```js
+{ nome: 'Consignado', valor: 950.40, parcelas: 48, inicio: '2026-08',
+  extraPrimeira: 749.60, reembolsoTotal: true }
+```
+
+Lê-se: 48 parcelas de R$ 950,40, sendo que a primeira vem R$ 1.700,00 porque
+carrega o seguro junto.
+
 ### Reembolso
 
-Empréstimo em que outra pessoa paga parte: `valor` é o que debita da sua conta,
-`reembolso` é o que volta. O "posso gastar" só enxerga a diferença.
+Quando o dinheiro sai da sua conta mas não é seu gasto. Duas formas:
+
+- **Uma parte** (`reembolso: 950.40`) — alguém banca um pedaço, o resto é seu.
+- **O valor cheio** (`reembolsoTotal: true`) — você pegou o empréstimo para
+  outra pessoa e ela devolve tudo. O líquido é **zero**: passa pela sua conta
+  sem nunca ser seu.
+
+O "posso gastar" só enxerga o líquido. Um consignado de R$ 950,40 integralmente
+devolvido não tira um centavo do seu mês — e é isso que a tela precisa dizer,
+senão você se acha mais pobre do que é.
 
 Ao marcar como pago, o app lança **dois** registros — a saída cheia e a entrada
 do reembolso, marcada como dinheiro de passagem. A planilha bate com o extrato
@@ -291,6 +317,48 @@ Passagem, pote da mãe, aquele imprevisto. Não precisa cadastrar nada: lança
 pelo teclado e pronto. Some do mês seguinte sozinho, e continua no histórico.
 
 ---
+
+## Corrigir depois
+
+Lançar rápido e lançar certo são coisas diferentes. O teclado da aba Lançar é
+feito para ser rápido, e rápido erra. Sem poder corrigir pelo celular, a saída
+seria abrir a planilha no computador — exatamente o que o app existe para
+evitar.
+
+**Toque em qualquer lançamento**, na Hoje ou no Mês, e um painel sobe de baixo:
+valor, data, método, categoria, descrição, e o botão de apagar. Toque em
+qualquer **compromisso** em Ajustes e o formulário abaixo carrega os valores
+dele para você editar em vez de cadastrar outro.
+
+Nada é gravado enquanto você não confirma, então fechar sem salvar realmente
+não muda nada.
+
+A correção viaja para a planilha na sincronização seguinte. A fila entende a
+ordem das coisas: um lançamento criado e editado antes de subir continua sendo
+uma inserção, e apagar o que ainda não subiu apenas cancela a inserção, em vez
+de mandar a planilha apagar uma linha que nunca existiu.
+
+---
+
+## A planilha continua legível
+
+A função `instalar` formata a aba `Lancamentos` (cabeçalho fixo, data em
+dd/mm/aaaa, valores em reais, negativo em vermelho) e monta uma aba **Painel**
+com **fórmulas de verdade** sobre ela:
+
+| | |
+|---|---|
+| Entrou / Reembolsos / Saiu | do mês em `B2` |
+| **Saldo do mês** | em verde |
+| Renda, meta, compromissos líquidos | de `Config` e `Compromissos` |
+| **Sobra prevista** | em verde |
+
+São fórmulas, não valores calculados pelo script: o painel se atualiza sozinho
+a cada lançamento que o celular manda, sem o script precisar rodar de novo.
+Trocar o mês na célula `B2` reescreve o painel inteiro.
+
+Para reaplicar sem mexer em dados, rode `formatar()` ou `montarPainel()`
+avulsos no editor.
 
 ## Como o "pode gastar hoje" é calculado
 

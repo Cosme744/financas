@@ -13,6 +13,7 @@ const $toast = document.getElementById('toast');
 let aba = 'home';
 let ref = new Date();       // mês em exibição
 let sincronizando = false;
+let editando = null;        // id do lançamento aberto para edição
 
 /* ---------- utilidades ---------- */
 
@@ -45,13 +46,19 @@ function render() {
     : aba === 'futuro' ? telas.futuro()
     : telas.ajustes();
 
+  // O painel de edição é desenhado por cima, sem trocar de aba: você volta
+  // exatamente para onde estava, no mesmo ponto da rolagem.
+  const alvo = editando ? store.buscar(editando) : null;
+  if (editando && !alvo) editando = null;
+  if (alvo) $tela.insertAdjacentHTML('beforeend', telas.painelEditar(alvo));
+
   document.querySelectorAll('.abas button').forEach((b) =>
     b.classList.toggle('ativa', b.dataset.aba === aba));
 
   $sync.classList.toggle('pendente', store.estado().fila.length > 0);
 
   ligarEventos();
-  window.scrollTo(0, 0);
+  if (!editando) window.scrollTo(0, 0);
 }
 
 function ir(destino) {
@@ -66,6 +73,12 @@ function ligarEventos() {
   $tela.querySelectorAll('[data-ir]').forEach((b) => {
     b.onclick = () => ir(b.dataset.ir);
   });
+
+  $tela.querySelectorAll('[data-editar]').forEach((b) => {
+    b.onclick = () => { editando = b.dataset.editar; vibrar(8); render(); };
+  });
+
+  if (editando) ligarEdicao();
 
   if (aba === 'home') {
     $tela.querySelectorAll('[data-pagar]').forEach((b) => {
@@ -109,6 +122,173 @@ function ligarEventos() {
   }
 
   if (aba === 'ajustes') ligarAjustes();
+}
+
+/**
+ * O formulário de compromisso serve para criar E para editar.
+ *
+ * Duplicar a tela só para editar significaria manter dois lugares em sincronia
+ * cada vez que um campo novo aparece — e acabou de aparecer um. Tocar num
+ * compromisso da lista carrega os valores aqui; o botão muda de nome e o id
+ * escondido decide se é criação ou substituição.
+ */
+function ligarFormCompromisso() {
+  const num = (id) => Number($tela.querySelector(id).value) || 0;
+  const $ = (id) => $tela.querySelector(id);
+
+  let modo = 'nao';   // nao | total | parte
+
+  const pintarReembolso = () => {
+    $tela.querySelectorAll('[data-reemb]').forEach((b) =>
+      b.classList.toggle('on', b.dataset.reemb === modo));
+    $('#campoReembolso').hidden = modo !== 'parte';
+  };
+
+  $tela.querySelectorAll('[data-reemb]').forEach((b) => {
+    b.onclick = () => { modo = b.dataset.reemb; pintarReembolso(); };
+  });
+
+  const limpar = () => {
+    for (const id of ['#cId', '#cNome', '#cValor', '#cDia', '#cParcelas', '#cExtra', '#cReembolso']) {
+      $(id).value = '';
+    }
+    modo = 'nao';
+    pintarReembolso();
+    $('#cTitulo').textContent = 'Novo compromisso';
+    $('#addComp').textContent = 'Adicionar compromisso';
+    $('#delComp').hidden = true;
+    $('#cCancelar').hidden = true;
+  };
+
+  const carregar = (c) => {
+    $('#cId').value = c.id;
+    $('#cNome').value = c.nome || '';
+    $('#cValor').value = c.valor || '';
+    $('#cDia').value = c.dia || '';
+    $('#cParcelas').value = c.parcelas || '';
+    $('#cInicio').value = c.inicio || '';
+    $('#cExtra').value = c.extraPrimeira || '';
+    $('#cReembolso').value = c.reembolso || '';
+    modo = c.reembolsoTotal ? 'total' : (c.reembolso ? 'parte' : 'nao');
+    pintarReembolso();
+    $('#cTitulo').textContent = 'Editando: ' + c.nome;
+    $('#addComp').textContent = 'Salvar alterações';
+    $('#delComp').hidden = false;
+    $('#cCancelar').hidden = false;
+    $('#formComp').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  pintarReembolso();
+
+  $tela.querySelectorAll('[data-comp]').forEach((b) => {
+    b.onclick = () => {
+      const c = store.estado().config.compromissos.find((x) => x.id === b.dataset.comp);
+      if (c) { vibrar(8); carregar(c); }
+    };
+  });
+
+  $('#cCancelar').onclick = () => { limpar(); render(); };
+
+  $('#addComp').onclick = () => {
+    const nome = $('#cNome').value.trim();
+    const valor = num('#cValor');
+    if (!nome || !valor) return toast('Preencha nome e valor', true);
+
+    const id = $('#cId').value;
+    const dados = {
+      id: id || store.novoId(),
+      nome,
+      valor,
+      dia: Math.min(31, Math.max(1, num('#cDia') || 1)),
+      parcelas: num('#cParcelas') || null,
+      inicio: $('#cInicio').value || null,
+      extraPrimeira: num('#cExtra'),
+      reembolso: modo === 'parte' ? num('#cReembolso') : 0,
+      reembolsoTotal: modo === 'total',
+      categoria: nome,
+    };
+
+    const lista = store.estado().config.compromissos || [];
+    store.salvarConfig({
+      compromissos: id ? lista.map((c) => (c.id === id ? dados : c)) : [...lista, dados],
+    });
+    toast(id ? `${nome} atualizado` : `${nome} adicionado`);
+    render();
+    sincronizarSilencioso();
+  };
+
+  $('#delComp').onclick = () => {
+    const id = $('#cId').value;
+    if (!id) return;
+    const c = store.estado().config.compromissos.find((x) => x.id === id);
+    if (!confirm(`Apagar "${c ? c.nome : 'este compromisso'}"? Os lançamentos já feitos ficam.`)) return;
+    store.salvarConfig({
+      compromissos: store.estado().config.compromissos.filter((x) => x.id !== id),
+    });
+    toast('Compromisso apagado');
+    render();
+    sincronizarSilencioso();
+  };
+}
+
+/** Liga o painel de edição de um lançamento. */
+function ligarEdicao() {
+  const t = store.buscar(editando);
+  if (!t) return;
+
+  // Rascunho local: nada é gravado enquanto você não confirma, então fechar
+  // sem salvar realmente não muda nada.
+  let tipo = t.valor < 0 ? 'saida' : 'entrada';
+  let metodo = t.metodo;
+  let categoria = t.categoria;
+
+  const fechar = () => { editando = null; render(); };
+  $tela.querySelector('#fecharEdicao').onclick = fechar;
+  $tela.querySelector('#fecharEdicaoX').onclick = fechar;
+
+  const marcar = (attr, valor) => {
+    $tela.querySelectorAll(`[${attr}]`).forEach((b) =>
+      b.classList.toggle('on', b.getAttribute(attr) === valor));
+  };
+  $tela.querySelectorAll('[data-etipo]').forEach((b) => {
+    b.onclick = () => { tipo = b.dataset.etipo; marcar('data-etipo', tipo); };
+  });
+  $tela.querySelectorAll('[data-emetodo]').forEach((b) => {
+    b.onclick = () => { metodo = b.dataset.emetodo; marcar('data-emetodo', metodo); };
+  });
+  $tela.querySelectorAll('[data-ecat]').forEach((b) => {
+    b.onclick = () => { categoria = b.dataset.ecat; marcar('data-ecat', categoria); };
+  });
+
+  $tela.querySelector('#eSalvar').onclick = () => {
+    // Aceita 12,50 e 12.50: exigir um formato só é o tipo de rigor que só
+    // serve para irritar quem está com o celular na mão.
+    const bruto = Number(String($tela.querySelector('#eValor').value).replace(',', '.'));
+    if (!Number.isFinite(bruto) || bruto <= 0) return toast('Valor inválido', true);
+
+    store.atualizar(t.id, {
+      valor: tipo === 'saida' ? -Math.abs(bruto) : Math.abs(bruto),
+      data: $tela.querySelector('#eData').value || t.data,
+      categoria,
+      metodo,
+      nota: $tela.querySelector('#eNota').value.trim(),
+    });
+    editando = null;
+    vibrar(14);
+    toast('Lançamento atualizado');
+    render();
+    sincronizarSilencioso();
+  };
+
+  $tela.querySelector('#eApagar').onclick = () => {
+    if (!confirm('Apagar este lançamento? Ele sai daqui e da planilha.')) return;
+    store.apagar(t.id);
+    editando = null;
+    vibrar(20);
+    toast('Lançamento apagado');
+    render();
+    sincronizarSilencioso();
+  };
 }
 
 /**
@@ -167,33 +347,7 @@ function ligarAjustes() {
   $tela.querySelector('#buscarCNPJ').onchange = (e) =>
     store.salvarConfig({ buscarCNPJ: e.target.checked });
 
-  $tela.querySelector('#addComp').onclick = () => {
-    const nome = $tela.querySelector('#cNome').value.trim();
-    const valor = num('#cValor');
-    if (!nome || !valor) return toast('Preencha nome e valor', true);
-
-    const novo = {
-      id: store.novoId(),
-      nome,
-      valor,
-      dia: Math.min(31, Math.max(1, num('#cDia') || 1)),
-      parcelas: num('#cParcelas') || null,
-      inicio: $tela.querySelector('#cInicio').value || null,
-      reembolso: num('#cReembolso'),
-      categoria: nome,
-    };
-    store.salvarConfig({ compromissos: [...(store.estado().config.compromissos || []), novo] });
-    toast(`${nome} adicionado`);
-    render();
-  };
-
-  $tela.querySelectorAll('[data-remover]').forEach((b) => {
-    b.onclick = () => {
-      const compromissos = store.estado().config.compromissos.filter((c) => c.id !== b.dataset.remover);
-      store.salvarConfig({ compromissos });
-      render();
-    };
-  });
+  ligarFormCompromisso();
 
   $tela.querySelector('#sincronizar').onclick = () => rodarSync(true);
 

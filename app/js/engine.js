@@ -15,7 +15,51 @@
  * líquido pesa no "posso gastar hoje".
  */
 
-export const liquido = (c) => (c.valor || 0) - (c.reembolso || 0);
+/*
+ * Três perguntas diferentes, que a maioria das planilhas mistura numa só:
+ *
+ *   valorNoMes      quanto a conta cobra NESTE mês
+ *   reembolsoNoMes  quanto disso volta para você
+ *   liquidoNoMes    quanto de fato sai do seu bolso
+ *
+ * O consignado que você pegou para emprestar a alguém é o caso que obriga a
+ * separar as três. A primeira parcela vem inflada pelo seguro, cobrado uma
+ * única vez; as outras 47 são lisas. E como quem pegou o dinheiro devolve o
+ * valor cheio, o líquido é zero o tempo todo — ele passa pela sua conta sem
+ * nunca ser seu. Uma planilha que só guarda "valor" não sabe dizer nada
+ * disso, e é por isso que parcelado fica difícil de entender nela.
+ */
+
+/** Quanto esta conta cobra no mês de referência, seguro da 1ª parcela incluso. */
+export function valorNoMes(c, ref) {
+  const p = parcelaNoMes(c, ref);
+  if (!p) return 0;
+  // p.n só é preenchido quando o compromisso tem mês de início — sem ele não
+  // há "primeira parcela" para o seguro se agarrar, e o extra é ignorado.
+  return (c.valor || 0) + (p.n === 1 ? (c.extraPrimeira || 0) : 0);
+}
+
+/** Quanto te devolvem naquele mês. */
+export function reembolsoNoMes(c, ref) {
+  return c.reembolsoTotal ? valorNoMes(c, ref) : (c.reembolso || 0);
+}
+
+export const liquidoNoMes = (c, ref) => valorNoMes(c, ref) - reembolsoNoMes(c, ref);
+
+/** Versão sem mês de referência, para quem só precisa do caso comum. */
+export const liquido = (c) => (c.valor || 0) - (c.reembolsoTotal ? (c.valor || 0) : (c.reembolso || 0));
+
+/** Quanto ainda falta pagar do próprio bolso até a última parcela. */
+export function faltaPagar(c, ref) {
+  const p = parcelaNoMes(c, ref);
+  if (!p || !p.total) return null;
+  let soma = 0;
+  for (let i = p.n; i <= p.total; i++) {
+    const m = new Date(ref.getFullYear(), ref.getMonth() + (i - p.n), 1);
+    soma += liquidoNoMes(c, m);
+  }
+  return soma;
+}
 
 /* ---------- datas ---------- */
 
@@ -93,7 +137,6 @@ export function parcelaNoMes(c, ref) {
     total: c.parcelas || null,
     restam: c.parcelas ? c.parcelas - n : null,
     ultima: !!(c.parcelas && n === c.parcelas),
-    faltaPagar: c.parcelas ? liquido(c) * (c.parcelas - n + 1) : null,
   };
 }
 
@@ -111,6 +154,13 @@ export function ativosNoMes(compromissos, ref) {
   return (compromissos || [])
     .map((c) => ({ ...c, parcela: parcelaNoMes(c, ref), diaEfetivo: diaNoMes(c.dia, ref) }))
     .filter((c) => c.parcela !== null)
+    .map((c) => ({
+      ...c,
+      valorMes: valorNoMes(c, ref),
+      reembolsoMes: reembolsoNoMes(c, ref),
+      liquidoMes: liquidoNoMes(c, ref),
+      parcela: { ...c.parcela, faltaPagar: faltaPagar(c, ref) },
+    }))
     .sort((a, b) => a.diaEfetivo - b.diaEfetivo);
 }
 
@@ -136,7 +186,7 @@ export function calcular(transacoes, config, hoje = new Date()) {
 
   // O que ainda vai cair antes do fim do mês. Dinheiro que já tem dono.
   const pendentes = ativos.filter((c) => !idsPagos.has(c.id))
-    .reduce((s, c) => s + liquido(c), 0);
+    .reduce((s, c) => s + c.liquidoMes, 0);
 
   const receita = Math.max(config.renda || 0, entradas);
   const meta = config.meta || 0;
@@ -200,7 +250,7 @@ export function projecao(config, transacoes, meses = 6, hoje = new Date()) {
   for (let i = 0; i <= meses; i++) {
     const ref = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
     const ativos = ativosNoMes(config.compromissos, ref);
-    const comprometido = ativos.reduce((s, c) => s + liquido(c), 0);
+    const comprometido = ativos.reduce((s, c) => s + c.liquidoMes, 0);
     const sobra = (config.renda || 0) - (config.meta || 0) - comprometido - media;
 
     linhas.push({

@@ -253,3 +253,43 @@ label.troca small { display: block; color: var(--texto-fraco); font-size: 12.5px
 .alerta { border-color: var(--atencao); }
 .alerta b { color: var(--atencao); }
 .alerta p { margin: 8px 0 0; font-size: 14px; color: var(--texto-fraco); line-height: 1.45; }
+
+/* ---------- painel de edição ---------- */
+.linha.editavel { cursor: pointer; margin: 0 -6px; padding-left: 6px; padding-right: 6px; border-radius: 8px; }
+.linha.editavel:active { background: var(--superficie-2); }
+
+.folha-fundo {
+  position: fixed; inset: 0; z-index: 14;
+  background: rgba(0, 0, 0, .6);
+}
+
+/* Sobe de baixo, como o polegar espera. Rola por dentro quando não cabe. */
+.folha {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  max-height: 88vh; overflow-y: auto;
+  background: var(--superficie);
+  border-top: 1px solid var(--borda);
+  border-radius: 20px 20px 0 0;
+  padding: 16px 16px calc(20px + var(--safe-b));
+  animation: sobe .18s ease-out;
+}
+@keyframes sobe { from { transform: translateY(14px); opacity: .6; } }
+
+.folha-topo {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px; font-size: 16px;
+}
+.folha .principal { margin-top: 18px; }
+.folha .secundario { margin-top: 8px; }
+
+.aviso-edicao {
+  margin: 14px 0 0; font-size: 13px; line-height: 1.4; color: var(--atencao);
+}
+
+/* ---------- ajuda contextual ---------- */
+small.ajuda, p.ajuda {
+  display: block; font-size: 12.5px; line-height: 1.4;
+  color: var(--texto-fraco); margin: 6px 0 0;
+}
+p.ajuda { margin: 0 0 12px; }
+small.passagem { color: var(--acento) !important; }
