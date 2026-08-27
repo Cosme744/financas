@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 10;
+const VERSAO = 11;
 
 const PADRAO = {
   TOKEN: '',
@@ -167,8 +167,16 @@ function doPost(e) {
   }
 }
 
+/**
+ * Responde a versão junto com o "estou vivo".
+ *
+ * A URL /exec serve um retrato congelado do código, tirado no momento da
+ * implantação — editar o arquivo não a atualiza. Sem este número não há como
+ * saber se o que está publicado é o que está no editor, a não ser adivinhando.
+ * Abra a URL no navegador e compare com o que `diagnostico()` imprime.
+ */
 function doGet() {
-  return json({ ok: true, vivo: true, hora: new Date().toISOString() });
+  return json({ ok: true, vivo: true, versao: VERSAO, hora: new Date().toISOString() });
 }
 
 function json(obj) {
