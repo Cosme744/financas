@@ -343,3 +343,8 @@ small.passagem { color: var(--acento) !important; }
 
 .fecho { font-size: 15px; line-height: 1.5; color: var(--texto-fraco); }
 .fecho b { color: var(--texto); }
+
+/* ---------- conta paga ---------- */
+.conta.paga { opacity: .58; }
+.conta.paga .conta-nome { color: var(--ok); }
+.tag.pago { color: var(--ok); border-color: var(--ok); font-weight: 600; }

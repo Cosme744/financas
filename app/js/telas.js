@@ -1,6 +1,6 @@
 // telas.js — renderização. Cada função devolve HTML; os eventos são ligados depois.
 
-import { calcular, porCategoria, doMes, doDia, porDia, projecao, faixas, liquido,
+import { calcular, porCategoria, doMes, doDia, porDia, projecao, faixas, liquido, porTipo,
          chaveMes, gastoDoDia, gastoPorQuis, CATEGORIA_QUIS } from './engine.js';
 import * as store from './store.js';
 
@@ -136,36 +136,18 @@ export function home(ref) {
       <span class="num">${dinheiro(c.meta)}</span></div>` : ''}
   </section>
 
-  ${c.aPagar.length ? `
-  <h2 class="titulo">Contas a pagar</h2>
+  ${(c.aPagar.length || c.pagas.length) ? `
+  <h2 class="titulo">Contas do mês</h2>
   <section class="cartao">
     <div class="resumo-pagar">
-      <span>${c.aPagar.length === 1 ? 'Falta 1 conta' : `Faltam ${c.aPagar.length} contas`} neste mês</span>
-      <b class="num neg">${dinheiro(c.pendentes)}</b>
+      <span>${c.pagas.length} de ${c.ativos.length} ${c.ativos.length === 1 ? 'paga' : 'pagas'}</span>
+      ${c.pendentes > 0
+        ? `<b class="num neg">faltam ${dinheiro(c.pendentes)}</b>`
+        : '<b class="num pos">tudo pago ✓</b>'}
     </div>
 
-    ${c.aPagar.map((x) => {
-      const atrasada = x.diaEfetivo < hojeDia;
-      const doBolso = x.liquidoMes !== x.valorMes;
-      return `
-      <div class="conta ${atrasada ? 'atrasada' : ''}">
-        <div class="conta-topo">
-          <span class="conta-nome">${escapar(x.nome)}</span>
-          <span class="num neg">${dinheiro(x.valorMes)}</span>
-        </div>
-        <div class="conta-info">
-          ${atrasada ? `<span class="tag vencida">venceu dia ${x.diaEfetivo}</span>`
-                     : `<span class="tag">vence dia ${x.diaEfetivo}</span>`}
-          <span>${selo(x)}</span>
-        </div>
-        ${doBolso ? `<div class="conta-info">
-          <span class="tag passagem">${x.liquidoMes === 0
-            ? 'devolvem tudo — não sai do seu bolso'
-            : `do seu bolso: ${dinheiro(x.liquidoMes)}`}</span>
-        </div>` : ''}
-        <button class="secundario pagar" data-pagar="${x.id}">Marcar como paga</button>
-      </div>`;
-    }).join('')}
+    ${c.aPagar.map((x) => contaHTML(x, hojeDia, false)).join('')}
+    ${c.pagas.map((x) => contaHTML(x, hojeDia, true)).join('')}
   </section>` : ''}
 
   ${recentes.length ? `
@@ -236,6 +218,37 @@ export function painelEditar(t) {
 
     <button class="principal" id="eSalvar">Salvar</button>
     <button class="secundario perigo" id="eApagar">Apagar lançamento</button>
+  </div>`;
+}
+
+/**
+ * Uma conta do mês, paga ou não.
+ *
+ * Paga fica na lista, apagada e riscada, em vez de desaparecer: sumir é
+ * indistinguível de "eu nunca cadastrei isso", e aí a pergunta que a tela
+ * existe para responder — já paguei a luz? — volta sem resposta.
+ */
+function contaHTML(x, hojeDia, paga) {
+  const atrasada = !paga && x.diaEfetivo < hojeDia;
+  const doBolso = x.liquidoMes !== x.valorMes;
+  return `
+  <div class="conta ${paga ? 'paga' : ''} ${atrasada ? 'atrasada' : ''}">
+    <div class="conta-topo">
+      <span class="conta-nome">${paga ? '✓ ' : ''}${escapar(x.nome)}</span>
+      <span class="num ${paga ? '' : 'neg'}">${dinheiro(x.valorMes)}</span>
+    </div>
+    <div class="conta-info">
+      ${paga ? '<span class="tag pago">PAGA</span>'
+        : (atrasada ? `<span class="tag vencida">venceu dia ${x.diaEfetivo}</span>`
+                    : `<span class="tag">vence dia ${x.diaEfetivo}</span>`)}
+      <span>${selo(x)}</span>
+    </div>
+    ${doBolso ? `<div class="conta-info">
+      <span class="tag passagem">${x.liquidoMes === 0
+        ? 'devolvem tudo — não sai do seu bolso'
+        : `do seu bolso: ${dinheiro(x.liquidoMes)}`}</span>
+    </div>` : ''}
+    ${paga ? '' : `<button class="secundario pagar" data-pagar="${x.id}">Marcar como paga</button>`}
   </div>`;
 }
 
@@ -494,13 +507,47 @@ export function futuro() {
 
   const listar = (cs) => cs.map((c) => escapar(c.nome)).join(' e ');
 
+  const t = porTipo(config);
+
+  const linhaComp = (x, mostrarParcela) => `
+    <div class="linha">
+      <span class="nome">${escapar(x.nome)}
+        ${mostrarParcela
+          ? `<small>parcela ${x.parcela.n} de ${x.parcela.total}${
+              x.liquidoMes === 0 ? ' · devolvido, R$ 0,00 seu'
+                                 : ` · ainda faltam ${dinheiro(x.parcela.faltaPagar)}`}</small>`
+          : '<small>todo mês, sem fim previsto</small>'}
+      </span>
+      <span class="num neg">${dinheiro(x.valorMes)}</span>
+    </div>`;
+
   return `
   <section class="cartao destaque">
     <div class="rotulo">Você paga por mês</div>
-    <div class="valor">${grande(hoje.comprometido)}</div>
-    <div class="sub">em ${hoje.quantidade} ${hoje.quantidade === 1 ? 'conta' : 'contas'}
-      fixas e parceladas, já sem o que te devolvem</div>
+    <div class="valor">${grande(t.total)}</div>
+    <div class="sub">é a soma das duas listas abaixo</div>
   </section>
+
+  ${t.fixas.length ? `
+  <h2 class="titulo">Contas fixas &middot; ${dinheiro(t.totalFixas)} por mês</h2>
+  <section class="cartao linhas">
+    ${t.fixas.map((x) => linhaComp(x, false)).join('')}
+  </section>
+  <p class="ajuda">Não têm fim previsto — vão continuar todo mês enquanto
+  existirem. Só saem daqui se você apagar em Ajustes.</p>` : ''}
+
+  ${t.parceladas.length ? `
+  <h2 class="titulo">Parcelamentos &middot; ${dinheiro(t.totalParceladas)} por mês</h2>
+  <section class="cartao linhas">
+    ${t.parceladas.map((x) => linhaComp(x, true)).join('')}
+    <div class="linha total">
+      <span class="nome"><b>Falta pagar no total</b>
+        <small>somando todas as parcelas que ainda vêm</small></span>
+      <span class="num neg"><b>${dinheiro(t.faltaTotal)}</b></span>
+    </div>
+  </section>
+  <p class="ajuda">Estes têm data para acabar. É a parte do que você paga hoje
+  que é <b>temporária</b> — e é ela que aparece no calendário abaixo.</p>` : ''}
 
   <h2 class="titulo">Quando isso diminui</h2>
   <section class="cartao">

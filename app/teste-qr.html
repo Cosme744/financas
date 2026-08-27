@@ -33,6 +33,11 @@
       <button class="principal" id="analisar" style="flex:1;margin:0">Analisar</button>
     </div>
     <div id="saida"></div>
+
+    <div class="rotulo-campo">Ou experimente um exemplo</div>
+    <div class="chips" id="exemplos"></div>
+    <small class="ajuda">Carregam um código de mentira no campo acima para você
+    ver como cada formato se comporta — inclusive os que não trazem o valor.</small>
   </section>
 
   <h2 class="titulo">Casos de referência</h2>
@@ -42,7 +47,9 @@
 <script type="module">
 import { interpretar } from './js/qr.js';
 import { escanear } from './js/qr.js';
-import { CASOS } from './casos-qr.js';
+import { CASOS, pix, chaveNFe } from './casos-qr.js';
+
+const CHAVE_EXEMPLO = chaveNFe('5026081234567800019565001000000042100000001');
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
@@ -76,6 +83,27 @@ function analisar() {
 }
 
 document.getElementById('analisar').onclick = analisar;
+
+/* ---------- exemplos ---------- */
+
+const EXEMPLOS = [
+  ['Pix com valor', pix({ valor: 25.9, nome: 'PADARIA CENTRAL' })],
+  ['Pix sem valor', pix({ nome: 'PADARIA CENTRAL' })],
+  ['Cupom com valor', `https://www.dfe.ms.gov.br/nfce/qrcode?chNFe=${CHAVE_EXEMPLO}`
+    + '&nVersao=100&tpAmb=1&dhEmi=2026-08-26T14%3A03%3A00-04%3A00&vNF=87.43'],
+  ['Cupom sem valor', `https://www.dfe.ms.gov.br/nfce/qrcode?p=${CHAVE_EXEMPLO}|2|1|000001|a1b2c3d4`],
+  ['Comprovante (recusado)', 'https://comprovante.maquininha.com.br/v/9f3a2b1c'],
+];
+
+document.getElementById('exemplos').innerHTML = EXEMPLOS
+  .map((e, i) => `<button class="chip" data-ex="${i}">${esc(e[0])}</button>`).join('');
+
+document.querySelectorAll('[data-ex]').forEach((b) => {
+  b.onclick = () => {
+    document.getElementById('entrada').value = EXEMPLOS[Number(b.dataset.ex)][1];
+    analisar();
+  };
+});
 
 document.getElementById('ler').onclick = async () => {
   try {

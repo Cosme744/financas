@@ -214,6 +214,35 @@ export function calcular(transacoes, config, hoje = new Date()) {
     gastoTotal: comprometidoPago + variaveis,
     ativos,
     aPagar: ativos.filter((c) => !idsPagos.has(c.id)),
+    // Conta paga não some da tela. Sumir é indistinguível de "eu esqueci de
+    // cadastrar", e a pergunta "já paguei a luz?" fica sem resposta.
+    pagas: ativos.filter((c) => idsPagos.has(c.id)),
+  };
+}
+
+/**
+ * Divide os compromissos do mês em contas fixas e parcelamentos.
+ *
+ * São dois tipos de dívida com futuros opostos: a fixa continua para sempre
+ * e a parcelada tem data para acabar. Somar as duas num número só esconde
+ * exatamente a informação que interessa — quanto do que você paga hoje é
+ * temporário.
+ */
+export function porTipo(config, ref = new Date()) {
+  const ativos = ativosNoMes(config.compromissos, ref);
+  const fixas = ativos.filter((c) => !c.parcela.total);
+  const parceladas = ativos.filter((c) => c.parcela.total);
+  const soma = (lista) => lista.reduce((s, c) => s + c.liquidoMes, 0);
+
+  return {
+    fixas,
+    parceladas,
+    totalFixas: soma(fixas),
+    totalParceladas: soma(parceladas),
+    total: soma(ativos),
+    // O que ainda falta pagar até a última parcela de tudo — o equivalente
+    // ao "faturas futuras" de um cartão.
+    faltaTotal: parceladas.reduce((s, c) => s + (c.parcela.faltaPagar || 0), 0),
   };
 }
 
