@@ -787,6 +787,11 @@ function formatar() {
   const s = aba(ABAS.LANC, COLUNAS);
   const n = Math.max(s.getMaxRows() - 1, 1);
 
+  // Reescreve o cabeçalho, não só o estilo. Uma aba criada por uma versão
+  // anterior tem menos colunas do que o modelo de hoje, e um cabeçalho
+  // defasado faz você ler a coluna errada ao conferir na mão.
+  s.getRange(1, 1, 1, COLUNAS.length).setValues([COLUNAS]);
+
   s.getRange(1, 1, 1, COLUNAS.length)
     .setFontWeight('bold')
     .setBackground('#1f3d2b')
@@ -805,6 +810,7 @@ function formatar() {
   s.setColumnWidth(col('nota'), 220);
 
   const comp = aba(ABAS.COMP, COLUNAS_COMP);
+  comp.getRange(1, 1, 1, COLUNAS_COMP.length).setValues([COLUNAS_COMP]);
   comp.getRange(1, 1, 1, COLUNAS_COMP.length)
     .setFontWeight('bold').setBackground('#1f3d2b').setFontColor('#ffffff');
   comp.setFrozenRows(1);
