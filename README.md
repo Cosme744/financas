@@ -181,10 +181,11 @@ gastar (dia a dia), porque misturar os dois deixa a lista inútil: a fatura do
 cartão sozinha esmaga o resto e a barra do almoço vira um fio invisível. O
 extrato vem agrupado por dia, com o total de cada um.
 
-**Futuro** junta meses seguidos que custam a mesma coisa numa faixa só, mostra
-quando cada parcelamento termina e quanto isso devolve por mês. No fim, a conta
-aberta da sobra — renda, menos meta, menos compromissos, menos sua média de
-gasto — para você ver de onde o número saiu em vez de ter que acreditar nele.
+**Futuro** responde uma pergunta só: **quando isso melhora, e quanto?** Um
+evento por parcelamento que acaba, com as duas datas separadas — o mês da
+última parcela e o mês em que o dinheiro sobra, que não são o mesmo. Quanto
+sobra por mês é assunto da Hoje, com números reais; aqui fica só o calendário
+do alívio.
 
 ---
 
@@ -350,12 +351,20 @@ com **fórmulas de verdade** sobre ela:
 |---|---|
 | Entrou / Reembolsos / Saiu | do mês em `B2` |
 | **Saldo do mês** | em verde |
-| Renda, meta, compromissos líquidos | de `Config` e `Compromissos` |
+| Renda e meta | de `Config` |
+| Compromissos líquidos | calculado pelo script (veja abaixo) |
 | **Sobra prevista** | em verde |
 
-São fórmulas, não valores calculados pelo script: o painel se atualiza sozinho
-a cada lançamento que o celular manda, sem o script precisar rodar de novo.
-Trocar o mês na célula `B2` reescreve o painel inteiro.
+Quase tudo são fórmulas, não valores gravados: o painel se atualiza sozinho a
+cada lançamento que o celular manda, sem o script rodar de novo. Trocar o mês
+na célula `B2` reescreve o painel inteiro.
+
+**Uma exceção, de propósito:** `Compromissos (líquido)`. Uma fórmula de
+planilha não sabe se um parcelamento já acabou — ela somaria o CREA 2025 para
+sempre, mesmo depois da 5ª parcela. Dá para escrever isso em array formula, mas
+fica ilegível e frágil. Então esse número é calculado pelo script, com a mesma
+regra do app, e reescrito por `atualizarPainel()` quando os compromissos mudam
+e uma vez por dia — que é a única frequência em que ele muda.
 
 Para reaplicar sem mexer em dados, rode `formatar()` ou `montarPainel()`
 avulsos no editor.

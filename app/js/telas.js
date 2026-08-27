@@ -58,9 +58,10 @@ const NOME_METODO = { pix: 'Pix', credito: 'Crédito', debito: 'Débito',
 /** "parcela 3 de 5 · faltam R$ 495,00" — o que a planilha não sabia dizer. */
 function selo(c) {
   const p = c.parcela;
-  if (!p || !p.total) return 'todo mês';
-  const restante = p.faltaPagar ? ` · faltam ${dinheiro(p.faltaPagar)}` : '';
-  return `parcela ${p.n} de ${p.total}${restante}${p.ultima ? ' · <b>última</b>' : ''}`;
+  if (!p || !p.total) return 'todo mês, sem fim previsto';
+  if (p.ultima) return `<b style="color:var(--ok)">última parcela (${p.n} de ${p.total})</b>`;
+  const restante = p.faltaPagar ? `, ainda faltam ${dinheiro(p.faltaPagar)}` : '';
+  return `parcela ${p.n} de ${p.total}${restante}`;
 }
 
 /* ===================== HOJE ===================== */
@@ -136,16 +137,35 @@ export function home(ref) {
   </section>
 
   ${c.aPagar.length ? `
-  <h2 class="titulo">A pagar &middot; ${c.aPagar.length} &middot; ${dinheiro(c.pendentes)}</h2>
-  <section class="cartao linhas">
-    ${c.aPagar.map((x) => `
-      <div class="linha">
-        <span class="nome">${escapar(x.nome)}
-          <small>${x.diaEfetivo < hojeDia ? '⚠ venceu dia ' + x.diaEfetivo : 'dia ' + x.diaEfetivo} · ${selo(x)}</small>
-          ${x.reembolso ? `<small>sai do seu bolso: ${dinheiro(liquido(x))}</small>` : ''}
-        </span>
-        <button class="chip" data-pagar="${x.id}">${dinheiro(x.valor)} · pagar</button>
-      </div>`).join('')}
+  <h2 class="titulo">Contas a pagar</h2>
+  <section class="cartao">
+    <div class="resumo-pagar">
+      <span>${c.aPagar.length === 1 ? 'Falta 1 conta' : `Faltam ${c.aPagar.length} contas`} neste mês</span>
+      <b class="num neg">${dinheiro(c.pendentes)}</b>
+    </div>
+
+    ${c.aPagar.map((x) => {
+      const atrasada = x.diaEfetivo < hojeDia;
+      const doBolso = x.liquidoMes !== x.valorMes;
+      return `
+      <div class="conta ${atrasada ? 'atrasada' : ''}">
+        <div class="conta-topo">
+          <span class="conta-nome">${escapar(x.nome)}</span>
+          <span class="num neg">${dinheiro(x.valorMes)}</span>
+        </div>
+        <div class="conta-info">
+          ${atrasada ? `<span class="tag vencida">venceu dia ${x.diaEfetivo}</span>`
+                     : `<span class="tag">vence dia ${x.diaEfetivo}</span>`}
+          <span>${selo(x)}</span>
+        </div>
+        ${doBolso ? `<div class="conta-info">
+          <span class="tag passagem">${x.liquidoMes === 0
+            ? 'devolvem tudo — não sai do seu bolso'
+            : `do seu bolso: ${dinheiro(x.liquidoMes)}`}</span>
+        </div>` : ''}
+        <button class="secundario pagar" data-pagar="${x.id}">Marcar como paga</button>
+      </div>`;
+    }).join('')}
   </section>` : ''}
 
   ${recentes.length ? `
@@ -221,7 +241,13 @@ export function painelEditar(t) {
 
 /* ===================== LANÇAR ===================== */
 
-let rascunho = { centavos: 0, categoria: 'Mercado', tipo: 'saida', metodo: 'pix', qr: null };
+const hojeISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+let rascunho = { centavos: 0, categoria: 'Mercado', tipo: 'saida', metodo: 'pix',
+                 qr: null, data: hojeISO() };
 
 /**
  * Recebe o que o scanner entendeu e adianta o que dá para adiantar.
@@ -268,6 +294,13 @@ export function lancar() {
       <button data-tipo="entrada" class="${rascunho.tipo === 'entrada' ? 'on' : ''}">Entrada</button>
     </div>
     <div class="visor"><small>R$</small>${v.toFixed(2).replace('.', ',')}</div>
+
+    <!-- A data é de hoje sozinha; o campo existe para os casos em que você
+         só lembra de lançar no dia seguinte. -->
+    <div class="linha-data">
+      <label for="lData">${rascunho.data === hojeISO() ? 'Hoje' : 'Em'}</label>
+      <input type="date" id="lData" value="${rascunho.data}" max="${hojeISO()}">
+    </div>
     <div class="rotulo-campo">Como pagou</div>
     <div class="chips">
       ${METODOS.map((m) =>
@@ -307,6 +340,9 @@ export function ligarLancar(raiz, rerender, onSalvo, abrirScanner) {
     b.onclick = () => { rascunho.tipo = b.dataset.tipo; rerender(); };
   });
 
+  const $data = raiz.querySelector('#lData');
+  if ($data) $data.onchange = () => { rascunho.data = $data.value || hojeISO(); rerender(); };
+
   const abrir = raiz.querySelector('#qrAbrir');
   if (abrir) abrir.onclick = abrirScanner;
 
@@ -324,15 +360,16 @@ export function ligarLancar(raiz, rerender, onSalvo, abrirScanner) {
         metodo: rascunho.metodo,
         // A nota fiscal entra com a data e o id dela; o resto do app não
         // precisa saber que veio de um QR além do rótulo "auto" na lista.
-        data: q ? q.data : undefined,
+        data: q ? q.data : rascunho.data,
         nota: q ? q.quem : '',
         id: q ? q.id : null,
         origem: q ? q.tipo : 'app',
       });
       // Mantém categoria e método: quem lança mercado no crédito
       // costuma lançar de novo do mesmo jeito.
+      // A data volta para hoje: lançar ontem é exceção, não o novo padrão.
       rascunho = { centavos: 0, categoria: rascunho.categoria, tipo: 'saida',
-                   metodo: rascunho.metodo, qr: null };
+                   metodo: rascunho.metodo, qr: null, data: hojeISO() };
       onSalvo(t);
     };
   }
@@ -414,6 +451,15 @@ export function mes(ref) {
 
 /* ===================== FUTURO ===================== */
 
+/*
+ * Uma pergunta só: quando isso melhora, e quanto?
+ *
+ * A versão anterior tentava responder três — quanto custa, como fica cada
+ * mês, e quanto sobra — e a de "quanto sobra" dependia de uma média estimada
+ * que ninguém sabia de onde vinha. Três respostas mornas numa tela só é o
+ * que a fazia parecer confusa. O quanto sobra já está na Hoje, com números
+ * reais; aqui fica só o que a Hoje não sabe dizer: o calendário do alívio.
+ */
 export function futuro() {
   const { config, transacoes } = store.estado();
   if (!(config.compromissos || []).length) {
@@ -425,64 +471,60 @@ export function futuro() {
   }
 
   const linhas = projecao(config, transacoes, 6);
-  const grupos = faixas(linhas);
-  const maior = Math.max(...grupos.map((g) => g.comprometido)) || 1;
-  const alivioTotal = linhas[0].comprometido - linhas[linhas.length - 1].comprometido;
+  const hoje = linhas[0];
 
-  const agora = linhas[0];
-  const sobra = agora.sobra;
+  // Um evento por mês em que a conta encolhe. Quem termina em outubro só
+  // alivia em novembro, então o alívio é lido do mês seguinte.
+  const eventos = [];
+  linhas.forEach((l, i) => {
+    if (i === 0 || l.alivio <= 0.005) return;
+    eventos.push({
+      // Duas datas, e confundir as duas é o que fazia a tela mentir: a última
+      // parcela é paga num mês, e o dinheiro só sobra no seguinte.
+      pagaAte: linhas[i - 1].rotulo,
+      aliviaEm: l.rotulo,
+      terminou: linhas[i - 1].terminando,
+      alivio: l.alivio,
+      passaA: l.comprometido,
+    });
+  });
+
+  const totalAlivio = hoje.comprometido - linhas[linhas.length - 1].comprometido;
+  const ultimo = linhas[linhas.length - 1].rotulo;
+
+  const listar = (cs) => cs.map((c) => escapar(c.nome)).join(' e ');
 
   return `
-  ${alivioTotal > 0 ? `
-  <section class="cartao destaque ok">
-    <div class="rotulo">Em 6 meses você libera</div>
-    <div class="valor">${grande(alivioTotal)}</div>
-    <div class="sub">por mês, conforme os parcelamentos terminam</div>
-  </section>` : ''}
+  <section class="cartao destaque">
+    <div class="rotulo">Você paga por mês</div>
+    <div class="valor">${grande(hoje.comprometido)}</div>
+    <div class="sub">em ${hoje.quantidade} ${hoje.quantidade === 1 ? 'conta' : 'contas'}
+      fixas e parceladas, já sem o que te devolvem</div>
+  </section>
 
-  <h2 class="titulo">Quanto os compromissos custam</h2>
+  <h2 class="titulo">Quando isso diminui</h2>
   <section class="cartao">
-    ${grupos.map((g, i) => `
-      <div class="linha">
-        <span class="nome">${g.rotulo}
-          <small>${g.quantidade} ${g.quantidade === 1 ? 'conta' : 'contas'}${
-            g.alivio > 0 ? ` · <b style="color:var(--ok)">${dinheiro(g.alivio)} a menos</b>` : ''}</small>
-        </span>
-        <span class="num neg">${dinheiro(g.comprometido)}</span>
-      </div>
-      <div class="barra" style="margin:0 0 10px">
-        <i style="width:${(g.comprometido / maior) * 100}%;background:${
-          i === 0 ? 'var(--acento)' : 'var(--texto-fraco)'}"></i>
-      </div>
-      ${g.terminando.length ? `<div class="termina">
-        ✓ termina ${escapar(g.fim.rotulo)}: ${g.terminando.map((t) => escapar(t.nome)).join(', ')}</div>` : ''}
-    `).join('')}
+    ${eventos.length ? eventos.map((e) => `
+      <div class="evento">
+        <div class="evento-quando">${escapar(e.pagaAte)}</div>
+        <div class="evento-corpo">
+          <div class="evento-fim">✓ última parcela ${e.terminou.length === 1 ? 'do' : 'de'}
+            ${listar(e.terminou)}</div>
+          <div class="evento-numeros">
+            <b class="pos">${dinheiro(e.alivio)} a menos por mês</b>
+            <span>de ${escapar(e.aliviaEm)} em diante você paga ${dinheiro(e.passaA)}</span>
+          </div>
+        </div>
+      </div>`).join('')
+    : `<p class="ajuda" style="margin:0">Nenhum dos seus compromissos termina nos
+       próximos 6 meses. Os que têm parcela contada vão aparecer aqui conforme
+       a última se aproximar.</p>`}
   </section>
 
-  <h2 class="titulo">De onde sai a sobra</h2>
-  <section class="cartao linhas">
-    <div class="linha"><span class="nome">Renda do mês</span>
-      <span class="num pos">${dinheiro(config.renda || 0)}</span></div>
-    ${config.meta ? `<div class="linha"><span class="nome">Guardar<small>sua meta</small></span>
-      <span class="num neg">−${dinheiro(config.meta)}</span></div>` : ''}
-    <div class="linha"><span class="nome">Compromissos
-      <small>${agora.quantidade} contas, já sem o que te devolvem</small></span>
-      <span class="num neg">−${dinheiro(agora.comprometido)}</span></div>
-    <div class="linha"><span class="nome">Dia a dia
-      <small>sua média dos últimos meses</small></span>
-      <span class="num neg">−${dinheiro(agora.variavelEstimado)}</span></div>
-    <div class="linha total"><span class="nome"><b>Sobra estimada</b></span>
-      <span class="num ${sobra < 0 ? 'neg' : 'pos'}"><b>${dinheiro(sobra)}</b></span></div>
-  </section>
-
-  ${sobra < 0 ? `
-  <section class="cartao alerta">
-    <b>As contas não fecham neste ritmo.</b>
-    <p>Renda menos meta não cobre compromissos mais gasto médio — falta
-    ${dinheiro(Math.abs(sobra))} por mês. Ou a meta de guardar cede, ou o dia a
-    dia encolhe, ou algum compromisso sai.</p>
-    ${alivioTotal > 0 ? `<p>A conta melhora sozinha ${dinheiro(alivioTotal)} até
-    ${escapar(linhas[linhas.length - 1].rotulo)}, quando os parcelamentos terminarem.</p>` : ''}
+  ${totalAlivio > 0 ? `
+  <section class="cartao fecho">
+    Somando tudo, em <b>${escapar(ultimo)}</b> você estará pagando
+    <b class="pos">${dinheiro(totalAlivio)} a menos</b> por mês do que hoje.
   </section>` : ''}`;
 }
 
@@ -574,13 +616,24 @@ export function ajustes() {
 
   <h2 class="titulo">Leitura de QR</h2>
   <section class="cartao">
+    <p class="ajuda" style="margin-top:0">Na aba <b>Lançar</b>, o botão
+    <b>Escanear QR</b> lê o QR do <b>cupom fiscal</b> e o de <b>cobrança Pix</b>.
+    Ele preenche o que conseguir e você confirma — nada é lançado sozinho.</p>
+
     <label class="troca">
       <input type="checkbox" id="buscarCNPJ" ${config.buscarCNPJ === false ? '' : 'checked'}>
-      <span>Buscar o nome da loja pelo CNPJ
-        <small>Consulta a BrasilAPI. Sai do celular só o CNPJ de quem te vendeu —
-        nunca o valor nem o que você comprou. Desligado, o lançamento fica
-        com o CNPJ mesmo.</small></span>
+      <span>Trocar o CNPJ pelo nome da loja
+        <small>O cupom fiscal traz o CNPJ de quem vendeu, não o nome. Ligado, o
+        app pergunta o nome na BrasilAPI e o lançamento fica "Supermercado X"
+        em vez de "CNPJ 12.345.678/0001-95".</small>
+        <small>Sai do celular só esse CNPJ, que é informação pública de
+        empresa. O valor e o que você comprou nunca saem.</small></span>
     </label>
+
+    <button class="secundario" id="testarQR" style="margin-top:14px">Testar a leitura</button>
+    <small class="ajuda">Abre uma página que lê um QR e mostra o que ele
+    entendeu, <b>sem lançar nada</b>. Serve para testar um cupom seu antes de
+    confiar no scanner.</small>
   </section>
 
   <section class="cartao">

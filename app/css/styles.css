@@ -293,3 +293,53 @@ small.ajuda, p.ajuda {
 }
 p.ajuda { margin: 0 0 12px; }
 small.passagem { color: var(--acento) !important; }
+
+/* ---------- contas a pagar ---------- */
+.resumo-pagar {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--borda);
+  font-size: 14.5px; color: var(--texto-fraco);
+}
+.resumo-pagar b { font-size: 17px; }
+
+.conta { padding: 14px 0; border-bottom: 1px solid var(--borda); }
+.conta:last-child { border-bottom: 0; padding-bottom: 0; }
+.conta-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.conta-nome { font-size: 16px; font-weight: 600; }
+.conta-info {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 6px; font-size: 12.5px; color: var(--texto-fraco);
+}
+.tag {
+  padding: 2px 8px; border-radius: 99px; font-size: 11.5px;
+  background: var(--superficie-2); border: 1px solid var(--borda);
+}
+.tag.vencida { color: var(--estourado); border-color: var(--estourado); }
+.tag.passagem { color: var(--acento); border-color: var(--acento); }
+.conta .pagar { margin-top: 10px; padding: 10px; font-size: 14px; }
+.conta.atrasada .conta-nome { color: var(--atencao); }
+
+/* ---------- data no lançar ---------- */
+.linha-data {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin-bottom: 4px;
+}
+.linha-data label { font-size: 13px; color: var(--texto-fraco); }
+.linha-data input { width: auto; padding: 7px 10px; font-size: 14px; }
+
+/* ---------- futuro ---------- */
+.evento { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--borda); }
+.evento:last-child { border-bottom: 0; padding-bottom: 0; }
+.evento:first-child { padding-top: 0; }
+.evento-quando {
+  flex: none; width: 62px; font-weight: 700; font-size: 14px;
+  color: var(--acento); padding-top: 1px;
+}
+.evento-corpo { flex: 1; }
+.evento-fim { font-size: 14.5px; }
+.evento-numeros { margin-top: 4px; font-size: 13px; color: var(--texto-fraco); }
+.evento-numeros b { display: block; font-size: 14px; }
+.pos { color: var(--ok); }
+
+.fecho { font-size: 15px; line-height: 1.5; color: var(--texto-fraco); }
+.fecho b { color: var(--texto); }

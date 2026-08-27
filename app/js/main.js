@@ -347,6 +347,12 @@ function ligarAjustes() {
   $tela.querySelector('#buscarCNPJ').onchange = (e) =>
     store.salvarConfig({ buscarCNPJ: e.target.checked });
 
+  // Página separada de propósito: ela não toca no seu histórico, então dá
+  // para testar um cupom de verdade sem sujar o mês.
+  $tela.querySelector('#testarQR').onclick = () => {
+    window.open('teste-qr.html', '_blank');
+  };
+
   ligarFormCompromisso();
 
   $tela.querySelector('#sincronizar').onclick = () => rodarSync(true);

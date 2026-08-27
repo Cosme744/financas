@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 7;
+const VERSAO = 8;
 
 const PADRAO = {
   TOKEN: '',
@@ -373,6 +373,7 @@ function gravarConfig(cfg) {
       Number(x.extraPrimeira) || 0, x.reembolsoTotal === true,
     ]));
   }
+  atualizarPainel();
   return lista.length;
 }
 
@@ -380,7 +381,34 @@ function gravarConfig(cfg) {
 // Parcelas — mesma regra do app
 // ============================================================
 
-const liquido = (c) => (c.valor || 0) - (c.reembolso || 0);
+/*
+ * As mesmas três contas do app, com os mesmos nomes — de propósito.
+ *
+ * Quando os dois lados calculam dinheiro, eles precisam calcular igual, senão
+ * o celular diz um número e a planilha diz outro e você não sabe em quem
+ * acreditar. A regra do seguro da 1ª parcela e do reembolso total mora aqui
+ * também, em vez de só no app.
+ */
+function valorNoMes(c, ref) {
+  const p = parcelaNoMes(c, ref);
+  if (!p) return 0;
+  return (c.valor || 0) + (p.n === 1 ? (c.extraPrimeira || 0) : 0);
+}
+
+function reembolsoNoMes(c, ref) {
+  return c.reembolsoTotal ? valorNoMes(c, ref) : (c.reembolso || 0);
+}
+
+function liquidoNoMes(c, ref) {
+  return valorNoMes(c, ref) - reembolsoNoMes(c, ref);
+}
+
+/** Total que os compromissos ATIVOS tiram do seu bolso no mês. */
+function compromissosLiquidos(ref) {
+  const alvo = ref || new Date();
+  return ativosNoMes(lerConfig().compromissos, alvo)
+    .reduce(function (s, c) { return s + liquidoNoMes(c, alvo); }, 0);
+}
 
 function parcelaNoMes(c, ref) {
   if (!c.inicio) return { n: null, total: null, ultima: false };
@@ -574,6 +602,8 @@ function registrar(origem, msg) {
 // ============================================================
 
 function avisarDoDia() {
+  atualizarPainel();   // a virada de mês muda quais parcelas estão ativas
+
   const cfg = lerConfig();
   const agora = new Date();
   const dia = Number(Utilities.formatDate(agora, fuso(), 'd'));
@@ -601,7 +631,7 @@ function avisarDoDia() {
   const reembolsado = doMes.reduce((s, t) => (t.valor > 0 && t.reembolso ? s + t.valor : s), 0);
   const receita = Math.max(cfg.renda, entradas);
   const gastos = doMes.reduce((s, t) => (t.valor < 0 ? s + Math.abs(t.valor) : s), 0);
-  const pendentes = ativos.reduce((s, c) => (pagos[c.id] ? s : s + liquido(c)), 0);
+  const pendentes = ativos.reduce((s, c) => (pagos[c.id] ? s : s + liquidoNoMes(c, hoje)), 0);
   const sobra = receita - cfg.meta - (gastos - reembolsado) - pendentes;
 
   avisos.unshift(sobra < 0
@@ -610,7 +640,7 @@ function avisarDoDia() {
 
   // Boa notícia também merece push.
   ativos.filter((c) => c.parcela.ultima)
-    .forEach((c) => avisos.push('🎉 ' + c.nome + ' é a ÚLTIMA parcela. Mês que vem sobram ' + reais(liquido(c)) + ' a mais.'));
+    .forEach((c) => avisos.push('🎉 ' + c.nome + ' é a ÚLTIMA parcela. Mês que vem sobram ' + reais(liquidoNoMes(c, hoje)) + ' a mais.'));
 
   notificar('Meu Dinheiro', avisos.join('\n'));
   return avisos;
@@ -899,7 +929,15 @@ function montarPainel() {
     ['', ''],
     ['Renda cadastrada', '=IFERROR(VLOOKUP("renda";Config!A:B;2;FALSE);0)'],
     ['Meta de guardar', '=IFERROR(VLOOKUP("meta";Config!A:B;2;FALSE);0)'],
-    ['Compromissos (líquido)', '=SUMPRODUCT(Compromissos!C2:C-IF(Compromissos!K2:K=TRUE;Compromissos!C2:C;Compromissos!I2:I))'],
+    // Único número do painel que NÃO é fórmula.
+    //
+    // Uma fórmula de planilha não sabe se um parcelamento já acabou: ela
+    // somaria o CREA 2025 para sempre, mesmo depois da 5ª parcela. Dá para
+    // escrever isso em array formula, mas fica ilegível e frágil. Aqui o
+    // script calcula com a mesma regra do app — que é testada — e grava o
+    // resultado. `atualizarPainel()` reescreve quando os compromissos mudam
+    // e uma vez por dia, que é a única frequência em que este número muda.
+    ['Compromissos (líquido)', compromissosLiquidos(new Date())],
     ['Sobra prevista', '={Renda cadastrada}-{Meta de guardar}-{Compromissos (líquido)}'],
     ['', ''],
     ['Lançamentos no mês', '=COUNTIFS(' + L + '!B:B;">="&' + ini + ';' + L + '!B:B;"<"&EDATE(' + ini + ';1))'],
@@ -952,4 +990,26 @@ function montarPainel() {
   p.setColumnWidth(2, 150);
 
   return 'Painel montado.';
+}
+
+/**
+ * Reescreve só a célula dos compromissos, sem remontar o painel inteiro.
+ *
+ * Silenciosa de propósito: roda dentro de gravarConfig e do aviso diário, e
+ * falhar aqui não pode derrubar nem a sincronização do celular nem o aviso.
+ */
+function atualizarPainel() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const p = ss.getSheetByName(ABAS.PAINEL);
+    if (!p) return;
+
+    const rotulos = p.getRange('A1:A30').getValues();
+    for (let i = 0; i < rotulos.length; i++) {
+      if (String(rotulos[i][0]) === 'Compromissos (líquido)') {
+        p.getRange(i + 1, 2).setValue(compromissosLiquidos(new Date()));
+        return;
+      }
+    }
+  } catch (e) { /* painel ainda não existe, ou planilha ocupada */ }
 }
