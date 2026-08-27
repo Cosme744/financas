@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 5;
+const VERSAO = 6;
 
 const PADRAO = {
   TOKEN: '',
@@ -874,34 +874,66 @@ function montarPainel() {
   const p = aba(ABAS.PAINEL);
   const L = "'" + ABAS.LANC + "'";
 
-  // O mês exibido é o corrente; trocar a célula B2 muda o painel inteiro.
+  // Recorte do mês em B2, escrito uma vez e reaproveitado. Trocar B2 reescreve
+  // o painel inteiro, então dá para olhar qualquer mês sem mexer em fórmula.
+  const ini = 'DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1)';
+  const doMes = ';' + L + '!B:B;">="&' + ini + ';' + L + '!B:B;"<"&EDATE(' + ini + ';1)';
+
+  /*
+   * As fórmulas apontam para os rótulos, não para números de linha.
+   *
+   * A primeira versão desta função escrevia =B10-B11-B12 na linha 12 — a
+   * célula somava a si mesma e o painel nascia com #REF!. Contar linha na
+   * cabeça erra, e erra de novo a cada linha inserida no meio. Aqui o rótulo
+   * entre chaves vira a referência certa depois que a lista está montada,
+   * então mover ou inserir linhas não quebra mais nada.
+   */
   const linhas = [
     ['Painel', ''],
     ['Mês', '=TEXT(TODAY();"yyyy-mm")'],
     ['', ''],
-    ['Entrou', '=SUMIFS(' + L + '!C:C;' + L + '!C:C;">0";' + L + '!I:I;FALSE;' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
-    ['Reembolsos', '=SUMIFS(' + L + '!C:C;' + L + '!C:C;">0";' + L + '!I:I;TRUE;' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
-    ['Saiu', '=-SUMIFS(' + L + '!C:C;' + L + '!C:C;"<0";' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
-    ['Saldo do mês', '=B4-B6'],
+    ['Entrou', '=SUMIFS(' + L + '!C:C;' + L + '!C:C;">0";' + L + '!I:I;FALSE' + doMes + ')'],
+    ['Reembolsos', '=SUMIFS(' + L + '!C:C;' + L + '!C:C;">0";' + L + '!I:I;TRUE' + doMes + ')'],
+    ['Saiu', '=-SUMIFS(' + L + '!C:C;' + L + '!C:C;"<0"' + doMes + ')'],
+    ['Saldo do mês', '={Entrou}-{Saiu}'],
     ['', ''],
     ['Renda cadastrada', '=IFERROR(VLOOKUP("renda";Config!A:B;2;FALSE);0)'],
     ['Meta de guardar', '=IFERROR(VLOOKUP("meta";Config!A:B;2;FALSE);0)'],
-    ['Compromissos (líquido)', '=SUMPRODUCT(Compromissos!C2:C - IF(Compromissos!K2:K=TRUE;Compromissos!C2:C;Compromissos!I2:I))'],
-    ['Sobra prevista', '=B10-B11-B12'],
+    ['Compromissos (líquido)', '=SUMPRODUCT(Compromissos!C2:C-IF(Compromissos!K2:K=TRUE;Compromissos!C2:C;Compromissos!I2:I))'],
+    ['Sobra prevista', '={Renda cadastrada}-{Meta de guardar}-{Compromissos (líquido)}'],
     ['', ''],
-    ['Lançamentos no mês', '=COUNTIFS(' + L + '!B:B;">="&DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);' + L + '!B:B;"<"&EDATE(DATE(VALUE(LEFT(B2;4));VALUE(RIGHT(B2;2));1);1))'],
+    ['Lançamentos no mês', '=COUNTIFS(' + L + '!B:B;">="&' + ini + ';' + L + '!B:B;"<"&EDATE(' + ini + ';1))'],
     ['Última atualização', '=IFERROR(MAX(' + L + '!B:B);"—")'],
   ];
 
-  p.getRange(1, 1, linhas.length, 2).setValues(linhas);
+  // Rótulo -> número da linha, descoberto da própria lista.
+  const linha = {};
+  linhas.forEach(function (l, i) { if (l[0]) linha[l[0]] = i + 1; });
+
+  const resolvidas = linhas.map(function (l) {
+    return [l[0], String(l[1]).replace(/\{([^}]+)\}/g, function (todo, rotulo) {
+      if (!linha[rotulo]) throw new Error('Painel: rótulo desconhecido "' + rotulo + '"');
+      return 'B' + linha[rotulo];
+    })];
+  });
+
+  p.getRange(1, 1, resolvidas.length, 2).setValues(resolvidas);
+
+  const faixa = function (rotulo) { return 'A' + linha[rotulo] + ':B' + linha[rotulo]; };
+  const celula = function (rotulo) { return 'B' + linha[rotulo]; };
 
   p.getRange('A1:B1').merge().setFontWeight('bold').setFontSize(14)
     .setBackground('#1f3d2b').setFontColor('#ffffff').setHorizontalAlignment('center');
-  p.getRange('A4:A16').setFontWeight('bold');
-  p.getRange('B4:B13').setNumberFormat('R$ #,##0.00;[RED]-R$ #,##0.00');
-  p.getRange('B16').setNumberFormat('dd/mm/yyyy');
-  p.getRange('A7:B7').setBackground('#d9ead3');    // saldo do mês, em verde
-  p.getRange('A13:B13').setBackground('#d9ead3');  // sobra prevista, em verde
+  p.getRange('A2:A' + linhas.length).setFontWeight('bold');
+  p.getRange(celula('Entrou') + ':' + celula('Sobra prevista'))
+    .setNumberFormat('R$ #,##0.00;[RED]-R$ #,##0.00');
+  p.getRange(celula('Lançamentos no mês')).setNumberFormat('0');
+  p.getRange(celula('Última atualização')).setNumberFormat('dd/mm/yyyy');
+
+  // Os dois números que respondem "como estou": em verde, como no seu painel.
+  p.getRange(faixa('Saldo do mês')).setBackground('#d9ead3');
+  p.getRange(faixa('Sobra prevista')).setBackground('#d9ead3');
+
   p.setColumnWidth(1, 200);
   p.setColumnWidth(2, 150);
 
