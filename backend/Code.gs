@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 9;
+const VERSAO = 10;
 
 const PADRAO = {
   TOKEN: '',
@@ -640,7 +640,10 @@ function registrar(origem, msg) {
 function avisarDoDia() {
   atualizarPainel();   // a virada de mês muda quais parcelas estão ativas
 
-  const cfg = lerConfig();
+  // Não chamar isto de `cfg`: esse nome já é a função que lê as Propriedades
+  // do Script. Sombreá-la fazia `cfg().AVISAR_DIAS_ANTES` virar "cfg is not a
+  // function" e derrubar o aviso inteiro antes de ele mandar qualquer coisa.
+  const plan = lerConfig();
   const agora = new Date();
   const dia = Number(Utilities.formatDate(agora, fuso(), 'd'));
   const ultimoDia = new Date(agora.getFullYear(), agora.getMonth() + 1, 0).getDate();
@@ -652,7 +655,7 @@ function avisarDoDia() {
   const tudo = listar(null);
   const doMes = tudo.filter((t) => String(t.data).slice(0, 7) === mes);
 
-  const ativos = ativosNoMes(cfg.compromissos, agora, tudo);
+  const ativos = ativosNoMes(plan.compromissos, agora, tudo);
   const avisos = [];
 
   ativos.forEach((c) => {
@@ -667,11 +670,11 @@ function avisarDoDia() {
   // Mesmo cálculo do app.
   const entradas = doMes.reduce((s, t) => (t.valor > 0 && !t.reembolso ? s + t.valor : s), 0);
   const reembolsado = doMes.reduce((s, t) => (t.valor > 0 && t.reembolso ? s + t.valor : s), 0);
-  const receita = Math.max(cfg.renda, entradas);
+  const receita = Math.max(plan.renda, entradas);
   const gastos = doMes.reduce((s, t) => (t.valor < 0 ? s + Math.abs(t.valor) : s), 0);
   const pendentes = ativos.reduce((s, c) =>
-    (c.situacao.pendente ? s + liquidoNoMes(c, hoje) : s), 0);
-  const sobra = receita - cfg.meta - (gastos - reembolsado) - pendentes;
+    (c.situacao.pendente ? s + liquidoNoMes(c, agora) : s), 0);
+  const sobra = receita - plan.meta - (gastos - reembolsado) - pendentes;
 
   avisos.unshift(sobra < 0
     ? '🔴 Você está ' + reais(Math.abs(sobra)) + ' no vermelho neste mês.'
@@ -679,7 +682,7 @@ function avisarDoDia() {
 
   // Boa notícia também merece push.
   ativos.filter((c) => c.parcela.ultima)
-    .forEach((c) => avisos.push('🎉 ' + c.nome + ' é a ÚLTIMA parcela. Mês que vem sobram ' + reais(liquidoNoMes(c, hoje)) + ' a mais.'));
+    .forEach((c) => avisos.push('🎉 ' + c.nome + ' é a ÚLTIMA parcela. Mês que vem sobram ' + reais(liquidoNoMes(c, agora)) + ' a mais.'));
 
   notificar('Meu Dinheiro', avisos.join('\n'));
   return avisos;
