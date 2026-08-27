@@ -49,12 +49,22 @@ export const liquidoNoMes = (c, ref) => valorNoMes(c, ref) - reembolsoNoMes(c, r
 /** Versão sem mês de referência, para quem só precisa do caso comum. */
 export const liquido = (c) => (c.valor || 0) - (c.reembolsoTotal ? (c.valor || 0) : (c.reembolso || 0));
 
-/** Quanto ainda falta pagar do próprio bolso até a última parcela. */
-export function faltaPagar(c, ref) {
+/**
+ * Quanto ainda falta pagar do próprio bolso até a última parcela.
+ *
+ * `desde` é o número da primeira parcela em aberto. Sem ele, a conta começa
+ * na parcela que o CALENDÁRIO cobra — o que erra para quem adiantou (já pagou
+ * mais do que o mês pede) e para quem atrasou. É este número que você compara
+ * com o "valor a pagar" do site da cobrança, então ele tem que refletir o que
+ * foi pago, não o mês em que estamos.
+ */
+export function faltaPagar(c, ref, desde) {
   const p = parcelaNoMes(c, ref);
   if (!p || !p.total) return null;
+
+  const inicio = Math.min(desde || p.n, p.total + 1);
   let soma = 0;
-  for (let i = p.n; i <= p.total; i++) {
+  for (let i = inicio; i <= p.total; i++) {
     const m = new Date(ref.getFullYear(), ref.getMonth() + (i - p.n), 1);
     soma += liquidoNoMes(c, m);
   }
@@ -149,18 +159,60 @@ export function parcelaNoMes(c, ref) {
  */
 export const diaNoMes = (dia, ref) => Math.min(dia || 1, diasNoMes(ref));
 
-/** Compromissos vivos no mês, já com parcela e dia efetivo anexados. */
-export function ativosNoMes(compromissos, ref) {
+/**
+ * Onde este compromisso está, comparando o que o calendário cobra com o que
+ * já foi pago.
+ *
+ * Para parcelamento vale a CONTAGEM de parcelas quitadas, não o mês em que
+ * cada uma saiu. Quem adianta a parcela de outubro em setembro fica com dois
+ * pagamentos em setembro e nenhum em outubro — perguntando "paguei neste
+ * mês?", outubro voltaria a cobrar uma parcela já quitada. Contando, "paguei
+ * 4 de 6" continua verdade em qualquer mês.
+ *
+ * Conta indefinida (luz, internet) não tem contagem que acabe, então para ela
+ * a pergunta certa continua sendo a do mês.
+ */
+export function situacao(c, transacoes, ref) {
+  const pagamentos = (transacoes || [])
+    .filter((t) => t.compromissoId === c.id && t.valor < 0);
+
+  if (!c.parcelas) {
+    const mes = chaveMes(ref);
+    const pagoNoMes = pagamentos.some((t) => String(t.data).slice(0, 7) === mes);
+    return { pendente: !pagoNoMes, pagas: pagamentos.length, adiantadas: 0, quitado: false };
+  }
+
+  const pagas = pagamentos.length;
+  const cobradas = c.inicio ? mesesDesde(c.inicio, ref) + 1 : 1;
+  const quitado = pagas >= c.parcelas;
+
+  return {
+    pagas,
+    quitado,
+    pendente: !quitado && pagas < cobradas,
+    adiantadas: Math.max(0, Math.min(pagas, c.parcelas) - cobradas),
+    faltam: Math.max(0, c.parcelas - pagas),
+    proxima: Math.min(pagas + 1, c.parcelas),
+  };
+}
+
+/** Compromissos vivos no mês, já com parcela, dia efetivo e situação. */
+export function ativosNoMes(compromissos, ref, transacoes) {
   return (compromissos || [])
     .map((c) => ({ ...c, parcela: parcelaNoMes(c, ref), diaEfetivo: diaNoMes(c.dia, ref) }))
     .filter((c) => c.parcela !== null)
-    .map((c) => ({
-      ...c,
-      valorMes: valorNoMes(c, ref),
-      reembolsoMes: reembolsoNoMes(c, ref),
-      liquidoMes: liquidoNoMes(c, ref),
-      parcela: { ...c.parcela, faltaPagar: faltaPagar(c, ref) },
-    }))
+    .map((c) => {
+      const s = situacao(c, transacoes, ref);
+      return {
+        ...c,
+        valorMes: valorNoMes(c, ref),
+        reembolsoMes: reembolsoNoMes(c, ref),
+        liquidoMes: liquidoNoMes(c, ref),
+        // O que falta conta a partir da primeira parcela em aberto.
+        parcela: { ...c.parcela, faltaPagar: faltaPagar(c, ref, (s.pagas || 0) + 1) },
+        situacao: s,
+      };
+    })
     .sort((a, b) => a.diaEfetivo - b.diaEfetivo);
 }
 
@@ -168,7 +220,7 @@ export function ativosNoMes(compromissos, ref) {
 
 export function calcular(transacoes, config, hoje = new Date()) {
   const mes = doMes(transacoes, hoje);
-  const ativos = ativosNoMes(config.compromissos, hoje);
+  const ativos = ativosNoMes(config.compromissos, hoje, transacoes);
 
   // Reembolso recebido não é renda sua — é dinheiro de passagem.
   const entradas = mes.filter((t) => t.valor > 0 && !t.reembolso)
@@ -177,7 +229,6 @@ export function calcular(transacoes, config, hoje = new Date()) {
     .reduce((s, t) => s + t.valor, 0);
 
   const despesas = mes.filter((t) => t.valor < 0);
-  const idsPagos = new Set(despesas.map((t) => t.compromissoId).filter(Boolean));
 
   const pagos = despesas.filter((t) => t.compromissoId)
     .reduce((s, t) => s + Math.abs(t.valor), 0);
@@ -185,7 +236,9 @@ export function calcular(transacoes, config, hoje = new Date()) {
     .reduce((s, t) => s + Math.abs(t.valor), 0);
 
   // O que ainda vai cair antes do fim do mês. Dinheiro que já tem dono.
-  const pendentes = ativos.filter((c) => !idsPagos.has(c.id))
+  // Quem está adiantado não entra: já pagou, e o gasto ficou registrado no
+  // mês em que de fato saiu do bolso.
+  const pendentes = ativos.filter((c) => c.situacao.pendente)
     .reduce((s, c) => s + c.liquidoMes, 0);
 
   const receita = Math.max(config.renda || 0, entradas);
@@ -213,10 +266,10 @@ export function calcular(transacoes, config, hoje = new Date()) {
     status,
     gastoTotal: comprometidoPago + variaveis,
     ativos,
-    aPagar: ativos.filter((c) => !idsPagos.has(c.id)),
+    aPagar: ativos.filter((c) => c.situacao.pendente),
     // Conta paga não some da tela. Sumir é indistinguível de "eu esqueci de
     // cadastrar", e a pergunta "já paguei a luz?" fica sem resposta.
-    pagas: ativos.filter((c) => idsPagos.has(c.id)),
+    pagas: ativos.filter((c) => !c.situacao.pendente),
   };
 }
 
@@ -228,8 +281,8 @@ export function calcular(transacoes, config, hoje = new Date()) {
  * exatamente a informação que interessa — quanto do que você paga hoje é
  * temporário.
  */
-export function porTipo(config, ref = new Date()) {
-  const ativos = ativosNoMes(config.compromissos, ref);
+export function porTipo(config, ref = new Date(), transacoes = []) {
+  const ativos = ativosNoMes(config.compromissos, ref, transacoes);
   const fixas = ativos.filter((c) => !c.parcela.total);
   const parceladas = ativos.filter((c) => c.parcela.total);
   const soma = (lista) => lista.reduce((s, c) => s + c.liquidoMes, 0);
@@ -278,7 +331,10 @@ export function projecao(config, transacoes, meses = 6, hoje = new Date()) {
 
   for (let i = 0; i <= meses; i++) {
     const ref = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
-    const ativos = ativosNoMes(config.compromissos, ref);
+    // Parcelamento já quitado não pesa mais nos meses à frente, mesmo que o
+    // calendário ainda o mostrasse — foi exatamente isso que adiantar comprou.
+    const ativos = ativosNoMes(config.compromissos, ref, transacoes)
+      .filter((c) => !c.situacao.quitado);
     const comprometido = ativos.reduce((s, c) => s + c.liquidoMes, 0);
     const sobra = (config.renda || 0) - (config.meta || 0) - comprometido - media;
 

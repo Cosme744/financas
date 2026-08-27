@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 8;
+const VERSAO = 9;
 
 const PADRAO = {
   TOKEN: '',
@@ -129,8 +129,10 @@ function diagnostico() {
 
 const ABAS = { LANC: 'Lancamentos', COMP: 'Compromissos', CFG: 'Config', LOG: 'Auto', PAINEL: 'Painel' };
 
+// Coluna nova entra sempre no FIM: inserir no meio desalinha as linhas já
+// gravadas, porque a leitura é por posição.
 const COLUNAS = ['id', 'data', 'valor', 'categoria', 'conta', 'nota', 'metodo',
-                 'compromissoId', 'reembolso', 'origem', 'criadoEm'];
+                 'compromissoId', 'reembolso', 'origem', 'criadoEm', 'parcela'];
 
 const COLUNAS_COMP = ['id', 'nome', 'valor', 'dia', 'categoria', 'conta',
                       'inicio', 'parcelas', 'reembolso', 'extraPrimeira', 'reembolsoTotal'];
@@ -426,11 +428,45 @@ function diaNoMes(dia, ref) {
   return Math.min(dia || 1, ultimo);
 }
 
-function ativosNoMes(compromissos, ref) {
+/**
+ * Mesma regra do app: parcelamento conta parcelas quitadas — adiantar não
+ * pode fazer o mês seguinte cobrar de novo — e conta indefinida olha só o mês.
+ * Se isto divergir do engine.js, o aviso das 8h contradiz a tela do celular.
+ */
+function situacao(c, transacoes, ref) {
+  const pagamentos = (transacoes || [])
+    .filter(function (t) { return t.compromissoId === c.id && t.valor < 0; });
+
+  if (!c.parcelas) {
+    const mes = Utilities.formatDate(ref, fuso(), 'yyyy-MM');
+    const pago = pagamentos.some(function (t) { return String(t.data).slice(0, 7) === mes; });
+    return { pendente: !pago, pagas: pagamentos.length, adiantadas: 0, quitado: false };
+  }
+
+  const pagas = pagamentos.length;
+  const partes = String(c.inicio || '').split('-');
+  const cobradas = c.inicio
+    ? (ref.getFullYear() - Number(partes[0])) * 12 + (ref.getMonth() - (Number(partes[1]) - 1)) + 1
+    : 1;
+  const quitado = pagas >= c.parcelas;
+
+  return {
+    pagas: pagas,
+    quitado: quitado,
+    pendente: !quitado && pagas < cobradas,
+    adiantadas: Math.max(0, Math.min(pagas, c.parcelas) - cobradas),
+  };
+}
+
+function ativosNoMes(compromissos, ref, transacoes) {
   return compromissos
     .map((c) => {
       const p = parcelaNoMes(c, ref);
-      return p ? Object.assign({}, c, { parcela: p, diaEfetivo: diaNoMes(c.dia, ref) }) : null;
+      return p ? Object.assign({}, c, {
+        parcela: p,
+        diaEfetivo: diaNoMes(c.dia, ref),
+        situacao: situacao(c, transacoes, ref),
+      }) : null;
     })
     .filter((c) => c !== null);
 }
@@ -610,15 +646,17 @@ function avisarDoDia() {
   const ultimoDia = new Date(agora.getFullYear(), agora.getMonth() + 1, 0).getDate();
   const mes = Utilities.formatDate(agora, fuso(), 'yyyy-MM');
 
-  const doMes = listar(mes + '-01').filter((t) => String(t.data).slice(0, 7) === mes);
-  const pagos = {};
-  doMes.forEach((t) => { if (t.compromissoId) pagos[t.compromissoId] = true; });
+  // Precisa do histórico inteiro, não só do mês: quem adiantou em setembro
+  // quitou uma parcela que o calendário só cobraria em outubro. Uma leitura
+  // só, reaproveitada nos dois usos.
+  const tudo = listar(null);
+  const doMes = tudo.filter((t) => String(t.data).slice(0, 7) === mes);
 
-  const ativos = ativosNoMes(cfg.compromissos, agora);
+  const ativos = ativosNoMes(cfg.compromissos, agora, tudo);
   const avisos = [];
 
   ativos.forEach((c) => {
-    if (pagos[c.id]) return;
+    if (!c.situacao.pendente) return;
     const qual = c.parcela.total ? ' (' + c.parcela.n + '/' + c.parcela.total + ')' : '';
     if (c.diaEfetivo < dia) avisos.push('⚠ ' + c.nome + qual + ' venceu dia ' + c.diaEfetivo + ' — ' + reais(c.valor));
     else if (c.diaEfetivo - dia <= cfg().AVISAR_DIAS_ANTES) {
@@ -631,7 +669,8 @@ function avisarDoDia() {
   const reembolsado = doMes.reduce((s, t) => (t.valor > 0 && t.reembolso ? s + t.valor : s), 0);
   const receita = Math.max(cfg.renda, entradas);
   const gastos = doMes.reduce((s, t) => (t.valor < 0 ? s + Math.abs(t.valor) : s), 0);
-  const pendentes = ativos.reduce((s, c) => (pagos[c.id] ? s : s + liquidoNoMes(c, hoje)), 0);
+  const pendentes = ativos.reduce((s, c) =>
+    (c.situacao.pendente ? s + liquidoNoMes(c, hoje) : s), 0);
   const sobra = receita - cfg.meta - (gastos - reembolsado) - pendentes;
 
   avisos.unshift(sobra < 0
@@ -1013,3 +1052,4 @@ function atualizarPainel() {
     }
   } catch (e) { /* painel ainda não existe, ou planilha ocupada */ }
 }
+

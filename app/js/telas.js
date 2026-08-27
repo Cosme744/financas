@@ -55,13 +55,25 @@ const diaBR = (iso) => `${String(iso).slice(8, 10)}/${String(iso).slice(5, 7)}`;
 const NOME_METODO = { pix: 'Pix', credito: 'Crédito', debito: 'Débito',
                       dinheiro: 'Dinheiro', cartao: 'Cartão' };
 
-/** "parcela 3 de 5 · faltam R$ 495,00" — o que a planilha não sabia dizer. */
+/** "3 de 6 pagas, ainda faltam R$ 422,70" — o que a planilha não sabia dizer. */
 function selo(c) {
   const p = c.parcela;
   if (!p || !p.total) return 'todo mês, sem fim previsto';
-  if (p.ultima) return `<b style="color:var(--ok)">última parcela (${p.n} de ${p.total})</b>`;
+
+  const s = c.situacao || {};
+  if (s.quitado) return `<b style="color:var(--ok)">quitado — ${p.total} de ${p.total}</b>`;
+
+  // O que conta é quantas foram pagas, não em que mês o calendário está:
+  // quem adiantou tem mais parcelas quitadas do que meses decorridos.
+  const pagas = s.pagas != null ? s.pagas : p.n - 1;
   const restante = p.faltaPagar ? `, ainda faltam ${dinheiro(p.faltaPagar)}` : '';
-  return `parcela ${p.n} de ${p.total}${restante}`;
+  const adiantado = s.adiantadas > 0
+    ? ` · <b style="color:var(--ok)">adiantado ${s.adiantadas}</b>` : '';
+
+  if (p.ultima && !s.adiantadas) {
+    return `<b style="color:var(--ok)">última parcela (${p.n} de ${p.total})</b>`;
+  }
+  return `${pagas} de ${p.total} pagas${restante}${adiantado}`;
 }
 
 /* ===================== HOJE ===================== */
@@ -248,7 +260,11 @@ function contaHTML(x, hojeDia, paga) {
         ? 'devolvem tudo — não sai do seu bolso'
         : `do seu bolso: ${dinheiro(x.liquidoMes)}`}</span>
     </div>` : ''}
-    ${paga ? '' : `<button class="secundario pagar" data-pagar="${x.id}">Marcar como paga</button>`}
+    ${paga
+      ? (x.parcelas && !x.situacao?.quitado
+          ? `<button class="secundario" data-adiantar="${x.id}">Adiantar a ${x.situacao.proxima}ª parcela</button>`
+          : '')
+      : `<button class="secundario pagar" data-pagar="${x.id}">Marcar como paga</button>`}
   </div>`;
 }
 
@@ -507,13 +523,13 @@ export function futuro() {
 
   const listar = (cs) => cs.map((c) => escapar(c.nome)).join(' e ');
 
-  const t = porTipo(config);
+  const t = porTipo(config, new Date(), transacoes);
 
   const linhaComp = (x, mostrarParcela) => `
     <div class="linha">
       <span class="nome">${escapar(x.nome)}
         ${mostrarParcela
-          ? `<small>parcela ${x.parcela.n} de ${x.parcela.total}${
+          ? `<small>${x.situacao?.pagas ?? x.parcela.n - 1} de ${x.parcela.total} pagas${
               x.liquidoMes === 0 ? ' · devolvido, R$ 0,00 seu'
                                  : ` · ainda faltam ${dinheiro(x.parcela.faltaPagar)}`}</small>`
           : '<small>todo mês, sem fim previsto</small>'}

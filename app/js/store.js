@@ -69,7 +69,7 @@ export function novoId() {
  * sem medo.
  */
 export function lancar({ valor, categoria, nota = '', metodo = 'pix', data,
-                         compromissoId = null, reembolso = false,
+                         compromissoId = null, reembolso = false, parcela = null,
                          id = null, origem = 'app' }) {
   const t = {
     id: id || novoId(),
@@ -80,6 +80,7 @@ export function lancar({ valor, categoria, nota = '', metodo = 'pix', data,
     nota,
     metodo,
     compromissoId,
+    parcela,
     reembolso,
     criadoEm: new Date().toISOString(),
   };

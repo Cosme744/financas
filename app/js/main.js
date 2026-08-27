@@ -2,6 +2,7 @@
 
 import * as store from './store.js';
 import * as telas from './telas.js';
+import { situacao } from './engine.js';
 import { sincronizar } from './sync.js';
 import { escanear, interpretar, nomeDoCNPJ } from './qr.js';
 
@@ -32,6 +33,48 @@ function vibrar(ms = 12) {
 
 const mesmoMes = (a, b) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+
+/* ---------- pagamento de compromisso ---------- */
+
+/**
+ * Registra o pagamento de um compromisso — o da vez ou um adiantamento.
+ *
+ * O número da parcela vai gravado no lançamento. A contagem em `situacao()`
+ * já bastaria para o app funcionar, mas sem o número a planilha vira uma
+ * lista de valores idênticos sem dizer qual é qual, e é lá que você vai
+ * conferir quando a conta não bater.
+ */
+function pagarCompromisso(id, adiantando) {
+  const c = store.estado().config.compromissos.find((x) => x.id === id);
+  if (!c) return;
+
+  const s = situacao(c, store.estado().transacoes, new Date());
+  const parcela = c.parcelas ? s.proxima : null;
+
+  // Sai o valor cheio (é o que a conta debita) e entra o reembolso separado.
+  // Assim a planilha bate com o extrato e o "posso gastar" enxerga só o seu.
+  store.lancar({
+    valor: -c.valor,
+    categoria: c.categoria || c.nome,
+    nota: parcela ? `${c.nome} (${parcela}/${c.parcelas})` : c.nome,
+    compromissoId: c.id,
+    parcela,
+  });
+
+  if (c.reembolso > 0) {
+    store.lancar({
+      valor: c.reembolso,
+      categoria: 'Reembolso',
+      nota: c.nome,
+      reembolso: true,
+    });
+  }
+
+  vibrar(adiantando ? 24 : 12);
+  toast(adiantando ? `${c.nome}: ${parcela}ª parcela adiantada` : `${c.nome} pago`);
+  render();
+  sincronizarSilencioso();
+}
 
 /* ---------- render ---------- */
 
@@ -82,32 +125,11 @@ function ligarEventos() {
 
   if (aba === 'home') {
     $tela.querySelectorAll('[data-pagar]').forEach((b) => {
-      b.onclick = () => {
-        const c = store.estado().config.compromissos.find((x) => x.id === b.dataset.pagar);
-        if (!c) return;
-
-        // Sai o valor cheio (é o que a conta debita) e entra o reembolso
-        // separado. Assim a planilha bate com o extrato e o "posso gastar"
-        // continua enxergando só o que é seu.
-        store.lancar({
-          valor: -c.valor,
-          categoria: c.categoria || c.nome,
-          nota: c.nome,
-          compromissoId: c.id,
-        });
-        if (c.reembolso > 0) {
-          store.lancar({
-            valor: c.reembolso,
-            categoria: 'Reembolso',
-            nota: c.nome,
-            reembolso: true,
-          });
-        }
-        vibrar();
-        toast(`${c.nome} pago`);
-        render();
-        sincronizarSilencioso();
-      };
+      b.onclick = () => pagarCompromisso(b.dataset.pagar, false);
+    });
+    // Adiantar é o mesmo pagamento, só que fora da vez.
+    $tela.querySelectorAll('[data-adiantar]').forEach((b) => {
+      b.onclick = () => pagarCompromisso(b.dataset.adiantar, true);
     });
   }
 
