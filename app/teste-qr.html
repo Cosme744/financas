@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Teste do leitor de QR</title>
+<link rel="stylesheet" href="css/styles.css">
+<style>
+  body { padding: 0 0 40px; }
+  main { max-width: 720px; margin: 0 auto; }
+  .certo { color: var(--ok); }
+  .errado { color: var(--estourado); }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 12.5px;
+        color: var(--texto-fraco); margin: 8px 0 0; }
+</style>
+</head>
+<body>
+
+<header class="topo"><h1>Teste do leitor de QR</h1></header>
+
+<main>
+  <p style="color:var(--texto-fraco);font-size:14px;padding:0 4px">
+    Nada é gravado e nada é lançado. Use para conferir se um cupom seu é lido
+    corretamente <b>antes</b> de confiar no scanner.
+  </p>
+
+  <h2 class="titulo">Testar um QR meu</h2>
+  <section class="cartao">
+    <label class="campo"><span>Cole o conteúdo do QR, ou leia pela câmera</span>
+      <textarea id="entrada" rows="4" placeholder="https://www.dfe.ms.gov.br/nfce/qrcode?p=... ou 00020126..."></textarea></label>
+    <div style="display:flex;gap:8px">
+      <button class="secundario" id="ler" style="flex:1">Ler pela câmera</button>
+      <button class="principal" id="analisar" style="flex:1;margin:0">Analisar</button>
+    </div>
+    <div id="saida"></div>
+  </section>
+
+  <h2 class="titulo">Casos de referência</h2>
+  <section class="cartao linhas" id="casos"></section>
+</main>
+
+<script type="module">
+import { interpretar } from './js/qr.js';
+import { escanear } from './js/qr.js';
+import { CASOS } from './casos-qr.js';
+
+const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* ---------- teste manual ---------- */
+
+function analisar() {
+  const bruto = document.getElementById('entrada').value.trim();
+  const saida = document.getElementById('saida');
+  if (!bruto) { saida.innerHTML = ''; return; }
+
+  const r = interpretar(bruto);
+  if (!r) {
+    saida.innerHTML = `<p class="errado" style="margin:14px 0 0">
+      Não reconhecido. Se isto veio de um cupom fiscal, mande o texto para o
+      Claude — é um formato que o parser ainda não cobre.</p>`;
+    return;
+  }
+
+  saida.innerHTML = `
+    <div class="linha" style="margin-top:14px">
+      <span class="nome"><b>${esc(r.rotulo)}</b>
+        <small>${esc(r.quem)}${r.detalhe ? ' · ' + esc(r.detalhe) : ''}</small>
+        <small>data: ${esc(r.data)} · método: ${r.metodo || 'você escolhe'}</small>
+        ${r.id ? `<small>id: ${esc(r.id)}</small>` : '<small>sem id fixo — não deduplica</small>'}
+      </span>
+      <span class="num ${r.valor ? 'neg' : ''}">${r.valor ? brl.format(r.valor) : 'sem valor'}</span>
+    </div>
+    ${(r.avisos || []).map((a) => `<p class="qr-aviso">${esc(a)}</p>`).join('')}`;
+}
+
+document.getElementById('analisar').onclick = analisar;
+
+document.getElementById('ler').onclick = async () => {
+  try {
+    const t = await escanear();
+    if (t) { document.getElementById('entrada').value = t; analisar(); }
+  } catch (e) {
+    document.getElementById('saida').innerHTML =
+      `<p class="errado" style="margin:14px 0 0">${esc(e.message)}</p>`;
+  }
+};
+
+/* ---------- casos de referência ---------- */
+
+function conferir(caso) {
+  const r = interpretar(caso.entrada);
+  if (caso.espera === null) {
+    return r ? [`devia recusar, mas leu como ${r.tipo}`] : [];
+  }
+  if (!r) return ['devia reconhecer, devolveu nada'];
+
+  const erros = [];
+  for (const [k, v] of Object.entries(caso.espera)) {
+    if (k === 'temAviso') {
+      if (!(r.avisos || []).some((a) => a.includes(v))) erros.push(`faltou o aviso sobre "${v}"`);
+    } else if (r[k] !== v) {
+      erros.push(`${k}: esperava ${JSON.stringify(v)}, veio ${JSON.stringify(r[k])}`);
+    }
+  }
+  return erros;
+}
+
+let falhas = 0;
+document.getElementById('casos').innerHTML = CASOS.map((c) => {
+  const erros = conferir(c);
+  if (erros.length) falhas++;
+  return `<div class="linha">
+    <span class="nome">${esc(c.nome)}
+      ${erros.map((e) => `<small class="errado">${esc(e)}</small>`).join('')}</span>
+    <span class="${erros.length ? 'errado' : 'certo'}">${erros.length ? '✕' : '✓'}</span>
+  </div>`;
+}).join('') + `<div class="linha"><span class="nome"><b>${CASOS.length - falhas}/${CASOS.length}
+  passaram</b><small>${falhas ? 'o parser regrediu — conserte antes de usar' : 'leitor íntegro'}</small></span></div>`;
+</script>
+</body>
+</html>

@@ -15,3 +15,8 @@ desktop.ini
 
 # Arquivos temporários de teste
 _teste-*.html
+
+# Credenciais do clasp (CLI do Apps Script). O .clasprc.json guarda o token
+# de acesso à sua conta Google — nunca pode entrar num repositório público.
+.clasp.json
+.clasprc.json

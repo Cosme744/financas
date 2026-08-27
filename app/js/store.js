@@ -10,6 +10,7 @@ const PADRAO = {
     compromissos: [],
     apiUrl: '',   // URL do Web App do Apps Script
     token: '',    // segredo compartilhado com o backend
+    buscarCNPJ: true,   // trocar o CNPJ da nota pelo nome da loja (BrasilAPI)
   },
   transacoes: [],
   fila: [],       // lançamentos ainda não enviados para a planilha
@@ -54,11 +55,20 @@ export function novoId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Adiciona um lançamento e o enfileira para sincronizar. */
+/**
+ * Adiciona um lançamento e o enfileira para sincronizar.
+ *
+ * `id` só é passado por quem tem um identificador natural — a chave de acesso
+ * de uma nota fiscal, por exemplo. Repetir o mesmo id faz a planilha
+ * reconhecer o registro e não duplicar, que é o ponto de ler o QR duas vezes
+ * sem medo.
+ */
 export function lancar({ valor, categoria, nota = '', metodo = 'pix', data,
-                         compromissoId = null, reembolso = false }) {
+                         compromissoId = null, reembolso = false,
+                         id = null, origem = 'app' }) {
   const t = {
-    id: novoId(),
+    id: id || novoId(),
+    origem,
     data: data || new Date().toISOString().slice(0, 10),
     valor,
     categoria,
@@ -72,6 +82,11 @@ export function lancar({ valor, categoria, nota = '', metodo = 'pix', data,
   dados.fila.push(t.id);
   persistir();
   return t;
+}
+
+/** A nota já foi lançada? Evita o susto de ver a mesma compra duas vezes. */
+export function existe(id) {
+  return dados.transacoes.some((t) => t.id === id);
 }
 
 export function remover(id) {

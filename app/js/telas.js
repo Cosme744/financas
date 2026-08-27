@@ -113,12 +113,47 @@ const lancamentoHTML = (t) => `
 
 /* ===================== LANÇAR ===================== */
 
-let rascunho = { centavos: 0, categoria: 'Mercado', tipo: 'saida', metodo: 'pix' };
+let rascunho = { centavos: 0, categoria: 'Mercado', tipo: 'saida', metodo: 'pix', qr: null };
+
+/**
+ * Recebe o que o scanner entendeu e adianta o que dá para adiantar.
+ *
+ * O QR nunca lança sozinho: ele preenche o visor e passa a bola. A tela de
+ * lançar continua a mesma — teclado, método e categoria seguem editáveis,
+ * porque o cupom fiscal não sabe dizer se você pagou no crédito ou no débito.
+ */
+export function aplicarQR(r) {
+  rascunho.qr = r;
+  rascunho.tipo = 'saida';
+  if (r.valor) rascunho.centavos = Math.round(r.valor * 100);
+  if (r.metodo) rascunho.metodo = r.metodo;
+}
+
+export function limparQR() {
+  rascunho.qr = null;
+}
+
+/** Quem consulta o CNPJ em segundo plano usa isto para saber se a tela mudou. */
+export const qrAtual = () => rascunho.qr;
 
 export function lancar() {
   const v = rascunho.centavos / 100;
   const teclas = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'C'];
+  const q = rascunho.qr;
   return `
+  ${q ? `
+  <section class="cartao qr-lido">
+    <div class="linha">
+      <span class="nome"><b>${escapar(q.rotulo)}</b>
+        <small>${escapar(q.quem)}${q.detalhe ? ' · ' + escapar(q.detalhe) : ''}</small>
+        <small>${diaBR(q.data)}${q.valor ? ' · valor veio do QR' : ''}</small>
+      </span>
+      <button class="chip" id="qrLimpar" aria-label="Descartar leitura">✕</button>
+    </div>
+    ${(q.avisos || []).map((a) => `<p class="qr-aviso">${escapar(a)}</p>`).join('')}
+  </section>` : `
+  <button class="secundario qr-abrir" id="qrAbrir">⛶ Escanear QR do cupom ou Pix</button>`}
+
   <section class="cartao">
     <div class="tipo">
       <button data-tipo="saida" class="${rascunho.tipo === 'saida' ? 'on' : ''}">Gasto</button>
@@ -144,7 +179,7 @@ export function lancar() {
   </section>`;
 }
 
-export function ligarLancar(raiz, rerender, onSalvo) {
+export function ligarLancar(raiz, rerender, onSalvo, abrirScanner) {
   raiz.querySelectorAll('[data-tecla]').forEach((b) => {
     b.onclick = () => {
       const k = b.dataset.tecla;
@@ -164,18 +199,32 @@ export function ligarLancar(raiz, rerender, onSalvo) {
     b.onclick = () => { rascunho.tipo = b.dataset.tipo; rerender(); };
   });
 
+  const abrir = raiz.querySelector('#qrAbrir');
+  if (abrir) abrir.onclick = abrirScanner;
+
+  const limpar = raiz.querySelector('#qrLimpar');
+  if (limpar) limpar.onclick = () => { limparQR(); rerender(); };
+
   const salvar = raiz.querySelector('#salvar');
   if (salvar) {
     salvar.onclick = () => {
       const bruto = rascunho.centavos / 100;
+      const q = rascunho.qr;
       const t = store.lancar({
         valor: rascunho.tipo === 'saida' ? -bruto : bruto,
         categoria: rascunho.tipo === 'entrada' ? 'Entrada' : rascunho.categoria,
         metodo: rascunho.metodo,
+        // A nota fiscal entra com a data e o id dela; o resto do app não
+        // precisa saber que veio de um QR além do rótulo "auto" na lista.
+        data: q ? q.data : undefined,
+        nota: q ? q.quem : '',
+        id: q ? q.id : null,
+        origem: q ? q.tipo : 'app',
       });
       // Mantém categoria e método: quem lança mercado no crédito
       // costuma lançar de novo do mesmo jeito.
-      rascunho = { centavos: 0, categoria: rascunho.categoria, tipo: 'saida', metodo: rascunho.metodo };
+      rascunho = { centavos: 0, categoria: rascunho.categoria, tipo: 'saida',
+                   metodo: rascunho.metodo, qr: null };
       onSalvo(t);
     };
   }
@@ -317,6 +366,17 @@ export function ajustes() {
       ${fila.length ? `⚠ ${fila.length} lançamento(s) aguardando envio.` : '✓ Tudo sincronizado.'}
       ${ultimaSync ? `<br>Última: ${new Date(ultimaSync).toLocaleString('pt-BR')}.` : ''}
     </p>
+  </section>
+
+  <h2 class="titulo">Leitura de QR</h2>
+  <section class="cartao">
+    <label class="troca">
+      <input type="checkbox" id="buscarCNPJ" ${config.buscarCNPJ === false ? '' : 'checked'}>
+      <span>Buscar o nome da loja pelo CNPJ
+        <small>Consulta a BrasilAPI. Sai do celular só o CNPJ de quem te vendeu —
+        nunca o valor nem o que você comprou. Desligado, o lançamento fica
+        com o CNPJ mesmo.</small></span>
+    </label>
   </section>
 
   <section class="cartao">

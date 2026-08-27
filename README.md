@@ -27,7 +27,17 @@ Abra <http://localhost:8123>. Serve para testar; o app de verdade precisa do pas
 
 1. Abra a planilha → **Extensões › Apps Script**.
 2. Apague o conteúdo e cole tudo de [backend/Code.gs](backend/Code.gs).
-3. No topo do arquivo, troque `TOKEN` por uma senha longa e aleatória.
+3. **Configurações do projeto › Propriedades do script › Adicionar**, e crie
+   `TOKEN` com uma senha longa e aleatória.
+
+   > O token não fica no `Code.gs`. As propriedades são área privada da sua
+   > conta Google, então o arquivo continua sem nada pessoal — e atualizar o
+   > backend passa a ser só colar a versão nova por cima, sem redigitar
+   > configuração. Rode `diagnostico()` para ver o que já está preenchido.
+
+   As outras propriedades são opcionais e todas têm padrão: `GMAIL_BUSCA`,
+   `AVISAR_DIAS_ANTES`, `ABA_ANTIGA`, `ABA_ANTIGA_2`, `TELEGRAM_BOT_TOKEN`,
+   `TELEGRAM_CHAT_ID`, `NTFY_TOPICO`.
 4. Rode a função **`instalar`** uma vez (menu de funções › `instalar` › Executar).
    Autorize quando o Google pedir. Isso cria as abas `Lancamentos`,
    `Compromissos`, `Config` e `Auto`, e agenda os gatilhos.
@@ -76,9 +86,25 @@ git add -A && git commit -m "o que mudou" && git push
 O workflow [.github/workflows/publicar.yml](.github/workflows/publicar.yml)
 republica a pasta `app/` sozinho. Nada de arrastar pasta.
 
+### O que NÃO se atualiza sozinho
+
 O `backend/` fica versionado junto, mas nunca é servido — ele roda dentro do
-Apps Script. Se mudar o `Code.gs`, ainda é preciso colar no editor do Apps
-Script na mão; o GitHub só guarda o histórico.
+Apps Script. Mudou o `Code.gs`? **Cole no editor do Apps Script na mão**, e
+depois **Implantar › Gerenciar implantações › editar › Nova versão** (sem esse
+segundo passo a URL continua servindo o código velho).
+
+Como as configurações moram nas propriedades, colar por cima é seguro: não há
+mais nada seu dentro do arquivo para se perder no caminho.
+
+Para automatizar também esse lado, o caminho é o [clasp](https://github.com/google/clasp),
+a CLI oficial do Apps Script:
+
+```bash
+npm i -g @google/clasp
+clasp login
+clasp clone <ID do projeto do Apps Script>   # gera .clasp.json, que o .gitignore já barra
+clasp push                                    # manda o backend/ para a planilha
+```
 
 > **O repositório é público, e de propósito.** Não há segredo no código:
 > a URL do Web App e o token são digitados por você em Ajustes e ficam
@@ -237,19 +263,54 @@ sozinho. Para importar outra aba sem mexer na configuração, chame
 
 ---
 
-## Escanear cupom / QR code (ainda não implementado)
+## Escanear cupom / QR code
 
-É viável, com precisões diferentes conforme o código:
+Na aba **Lançar**, o botão **⛶ Escanear QR** abre a câmera. O app entende dois
+formatos, decodificados no próprio celular — sem biblioteca externa, sem
+mandar a imagem para lugar nenhum:
 
-| Código | O que dá para extrair | Confiabilidade |
-|---|---|---|
-| **QR do Pix** (BR Code) | Valor e recebedor, decodificado no próprio celular | Alta, funciona offline |
-| **QR da NFC-e** (cupom fiscal) | Valor total sai da própria URL | Boa |
-| Itens do cupom | Exigiria consultar a SEFAZ de cada estado | Frágil, varia por estado |
+| Código | O que sai dele |
+|---|---|
+| **QR do Pix** (BR Code) | Recebedor, cidade, txid, e o valor **quando o código carrega valor** |
+| **QR da NFC-e** (cupom fiscal) | Chave de acesso, CNPJ do emitente, número e UF da nota |
 
-O Chrome do Android tem `BarcodeDetector` nativo, então o PWA lê o QR pela
-câmera sem biblioteca externa. O caminho seria: escanear → mostrar valor e
-estabelecimento → você confirma a categoria → lança.
+Nada é lançado sozinho: o QR preenche o visor e **você confirma**. Método de
+pagamento e categoria continuam seus, porque o cupom fiscal não registra se
+você passou no crédito ou no débito.
 
-Comprovante de maquininha, por si só, não costuma trazer dados estruturados —
-o que vale escanear é o QR da nota fiscal.
+### Sobre o valor não vir sempre
+
+Vale saber antes de estranhar:
+
+- **NFC-e versão 2 "normal"** — o formato mais comum hoje — carrega só
+  `chNFe|nVersao|tpAmb|cIdToken|cHash`. **Não tem o valor.** Você digita.
+- **NFC-e versão 1** e a **versão 2 em contingência** trazem `vNF`. Valor
+  preenchido sozinho.
+- **Pix estático** (o adesivo do balcão) costuma vir sem valor: o mesmo código
+  serve para qualquer quantia.
+- **Pix dinâmico** guarda o valor num endereço do banco, não no código.
+
+Mesmo sem o valor, ler o QR da nota vale a pena: traz a data, o CNPJ da loja e
+— principalmente — **a chave de acesso**, que é única por nota. O lançamento
+usa essa chave como id, então ler a mesma nota duas vezes não duplica nada,
+nem aqui nem na planilha.
+
+### Nome da loja
+
+Com o CNPJ em mãos, o app consulta a [BrasilAPI](https://brasilapi.com.br) e
+troca `CNPJ 12.345.678/0001-95` pelo nome do estabelecimento. Sai do celular
+**só o CNPJ de quem te vendeu** — dado de registro público, nunca o valor nem o
+que você comprou. O resultado fica em cache e a consulta é desligável em
+**Ajustes › Leitura de QR**.
+
+### Antes de confiar
+
+Abra <https://cosme744.github.io/financas/teste-qr.html> no celular, leia um
+cupom seu e veja o que sairia. Nada é gravado. A página também roda os casos de
+[app/casos-qr.js](app/casos-qr.js) a cada carregamento — se algum falhar, o
+leitor regrediu.
+
+**O que não dá para ler:** o comprovante da maquininha (a via do cartão) não
+carrega dado estruturado nenhum. O QR que vale escanear é o do **cupom
+fiscal**, não o do comprovante. Se o app não reconhecer, ele diz isso em vez
+de chutar um lançamento.

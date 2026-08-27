@@ -11,26 +11,84 @@
  */
 
 // ============================================================
-// CONFIGURAÇÃO — o único bloco que você precisa editar
+// CONFIGURAÇÃO — nas Propriedades do Script, não neste arquivo
 // ============================================================
+//
+// Este arquivo é público no GitHub, então nada pessoal pode morar nele.
+// Os seus valores ficam em Configurações do projeto › Propriedades do script,
+// que é área privada da sua conta Google e não sai daqui.
+//
+// Isso resolve dois problemas de uma vez:
+//
+//   1. O token deixa de correr o risco de ir parar num commit.
+//   2. Colar uma versão nova deste arquivo por cima da antiga não apaga mais
+//      as suas configurações — antes, cada atualização exigia redigitar tudo.
+//
+// Rode `diagnostico()` no editor para ver o que está preenchido.
 
-const CONFIG = {
-  TOKEN: 'TROQUE-ISTO-POR-UMA-SENHA-LONGA-E-ALEATORIA',
+const PADRAO = {
+  TOKEN: '',
 
   TELEGRAM_BOT_TOKEN: '',   // recomendado: privado de verdade
   TELEGRAM_CHAT_ID: '',
   NTFY_TOPICO: '',          // alternativa sem cadastro; use nome longo e aleatório
 
-  // Troque pelos domínios dos SEUS bancos. Para descobrir o certo, procure
-  // no Gmail por uma compra recente e veja de quem veio a mensagem.
+  // Os domínios dos SEUS bancos. Para descobrir o certo, procure no Gmail
+  // por uma compra recente e veja de quem veio a mensagem.
   GMAIL_BUSCA: '(from:seubanco.com.br) (subject:compra OR subject:aprovada OR subject:transação)',
 
-  AVISAR_DIAS_ANTES: 2,
+  AVISAR_DIAS_ANTES: '2',
 
   // Aba de origem do importador. Aceita nome parcial; se casar com mais de
   // uma aba, o script reclama e pede o nome completo em vez de escolher.
   ABA_ANTIGA: 'Financeiro',
+  ABA_ANTIGA_2: '',         // segunda planilha de origem, se você tiver duas
 };
+
+let _cfg = null;
+
+/**
+ * Lê as propriedades uma vez por execução.
+ *
+ * Preguiçoso de propósito: se isto rodasse no topo do arquivo, uma conta
+ * ainda não autorizada quebraria TODAS as funções, inclusive a `instalar`
+ * que existe justamente para autorizar.
+ */
+function cfg() {
+  if (_cfg) return _cfg;
+  let salvas = {};
+  try { salvas = PropertiesService.getScriptProperties().getProperties(); } catch (e) {}
+
+  _cfg = Object.assign({}, PADRAO);
+  Object.keys(salvas).forEach(function (k) {
+    if (String(salvas[k]).trim() !== '') _cfg[k] = salvas[k];
+  });
+  _cfg.AVISAR_DIAS_ANTES = Number(_cfg.AVISAR_DIAS_ANTES) || 2;
+  return _cfg;
+}
+
+/** Mostra o que está configurado sem revelar segredo nenhum. */
+function diagnostico() {
+  const c = cfg();
+  const esconde = function (v) { return v ? 'definido (' + String(v).length + ' caracteres)' : '— VAZIO —'; };
+  const linhas = [
+    'TOKEN................: ' + esconde(c.TOKEN),
+    'TELEGRAM_BOT_TOKEN...: ' + esconde(c.TELEGRAM_BOT_TOKEN),
+    'TELEGRAM_CHAT_ID.....: ' + esconde(c.TELEGRAM_CHAT_ID),
+    'NTFY_TOPICO..........: ' + esconde(c.NTFY_TOPICO),
+    'GMAIL_BUSCA..........: ' + c.GMAIL_BUSCA,
+    'AVISAR_DIAS_ANTES....: ' + c.AVISAR_DIAS_ANTES,
+    'ABA_ANTIGA...........: ' + c.ABA_ANTIGA,
+  ];
+  if (!c.TOKEN) {
+    linhas.push('');
+    linhas.push('⚠ Sem TOKEN o app do celular não consegue falar com a planilha.');
+    linhas.push('  Configurações do projeto › Propriedades do script › Adicionar.');
+  }
+  const texto = linhas.join('\n');
+  Logger.log(texto);
+  return texto;
+}
 
 const ABAS = { LANC: 'Lancamentos', COMP: 'Compromissos', CFG: 'Config', LOG: 'Auto' };
 
@@ -47,7 +105,13 @@ const COLUNAS_COMP = ['id', 'nome', 'valor', 'dia', 'categoria', 'conta',
 function doPost(e) {
   try {
     const req = JSON.parse(e.postData.contents);
-    if (req.token !== CONFIG.TOKEN) return json({ ok: false, erro: 'Token inválido' });
+
+    // Token vazio recusa TUDO. Sem esta primeira linha, um script recém-colado
+    // e ainda não configurado aceitaria qualquer chamada que mandasse
+    // "token": "" — e o Web App está publicado para quem tiver a URL.
+    const esperado = cfg().TOKEN;
+    if (!esperado) return json({ ok: false, erro: 'Backend sem TOKEN configurado' });
+    if (req.token !== esperado) return json({ ok: false, erro: 'Token inválido' });
 
     switch (req.acao) {
       case 'inserir': return json({ ok: true, salvos: inserir(req.transacoes || []).ids });
@@ -372,7 +436,7 @@ function varrerGmail() {
   // Retoma de onde parou em vez de reprocessar os mesmos dois dias a cada
   // 15 minutos. O 'after:' do Gmail já corta na origem, então na maioria das
   // rodadas a busca volta vazia e o gatilho custa quase nada.
-  const busca = CONFIG.GMAIL_BUSCA + ' after:' + Math.floor(desde / 1000);
+  const busca = cfg().GMAIL_BUSCA + ' after:' + Math.floor(desde / 1000);
 
   const lote = [];
   GmailApp.search(busca, 0, 50).forEach((th) => {
@@ -425,7 +489,7 @@ function avisarDoDia() {
     if (pagos[c.id]) return;
     const qual = c.parcela.total ? ' (' + c.parcela.n + '/' + c.parcela.total + ')' : '';
     if (c.diaEfetivo < dia) avisos.push('⚠ ' + c.nome + qual + ' venceu dia ' + c.diaEfetivo + ' — ' + reais(c.valor));
-    else if (c.diaEfetivo - dia <= CONFIG.AVISAR_DIAS_ANTES) {
+    else if (c.diaEfetivo - dia <= cfg().AVISAR_DIAS_ANTES) {
       avisos.push('📅 ' + c.nome + qual + ' vence dia ' + c.diaEfetivo + ' — ' + reais(c.valor));
     }
   });
@@ -457,16 +521,16 @@ const reais = (v) => 'R$ ' + Utilities.formatString('%.2f', v || 0).replace('.',
 // ============================================================
 
 function notificar(titulo, corpo) {
-  if (CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID) {
-    UrlFetchApp.fetch('https://api.telegram.org/bot' + CONFIG.TELEGRAM_BOT_TOKEN + '/sendMessage', {
+  if (cfg().TELEGRAM_BOT_TOKEN && cfg().TELEGRAM_CHAT_ID) {
+    UrlFetchApp.fetch('https://api.telegram.org/bot' + cfg().TELEGRAM_BOT_TOKEN + '/sendMessage', {
       method: 'post',
-      payload: { chat_id: CONFIG.TELEGRAM_CHAT_ID, text: titulo + '\n\n' + corpo },
+      payload: { chat_id: cfg().TELEGRAM_CHAT_ID, text: titulo + '\n\n' + corpo },
       muteHttpExceptions: true,
     });
     return;
   }
-  if (CONFIG.NTFY_TOPICO) {
-    UrlFetchApp.fetch('https://ntfy.sh/' + CONFIG.NTFY_TOPICO, {
+  if (cfg().NTFY_TOPICO) {
+    UrlFetchApp.fetch('https://ntfy.sh/' + cfg().NTFY_TOPICO, {
       method: 'post',
       contentType: 'text/plain; charset=utf-8',
       headers: { Title: titulo },
@@ -513,7 +577,7 @@ function acharAba(nome) {
 }
 
 function importarPlanilhaAntiga(nomeAba) {
-  const origem = acharAba(nomeAba || CONFIG.ABA_ANTIGA);
+  const origem = acharAba(nomeAba || cfg().ABA_ANTIGA);
   const grade = origem.getDataRange().getValues();
 
   // Acha a linha de cabeçalho pelo texto, em vez de fixar o número da linha.
@@ -605,6 +669,15 @@ function importarPlanilhaAntiga(nomeAba) {
   console.log(final);
   return final;
 }
+
+/*
+ * O botão Executar do editor não passa argumento, então cada aba de origem
+ * precisa de um atalho próprio na lista de funções. Os nomes das abas ficam
+ * nas propriedades, não aqui — é o que mantém este arquivo genérico e faz a
+ * atualização ser só colar por cima.
+ */
+function importar1() { return importarPlanilhaAntiga(cfg().ABA_ANTIGA); }
+function importar2() { return importarPlanilhaAntiga(cfg().ABA_ANTIGA_2); }
 
 // ============================================================
 // Instalação — rode UMA vez pelo editor

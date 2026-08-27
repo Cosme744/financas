@@ -3,6 +3,7 @@
 import * as store from './store.js';
 import * as telas from './telas.js';
 import { sincronizar } from './sync.js';
+import { escanear, interpretar, nomeDoCNPJ } from './qr.js';
 
 const $tela = document.getElementById('tela');
 const $titulo = document.getElementById('mesTitulo');
@@ -104,10 +105,51 @@ function ligarEventos() {
       aba = 'home';
       render();
       sincronizarSilencioso();
-    });
+    }, abrirScanner);
   }
 
   if (aba === 'ajustes') ligarAjustes();
+}
+
+/**
+ * Abre a câmera, entende o QR e joga o resultado na tela de lançar.
+ *
+ * Nada é gravado aqui. O caminho é sempre ler -> mostrar -> você confirma,
+ * porque um lançamento errado dá mais trabalho para achar e apagar do que
+ * um toque a mais para confirmar.
+ */
+async function abrirScanner() {
+  let bruto;
+  try {
+    bruto = await escanear();
+  } catch (e) {
+    return toast(e.message, true);
+  }
+  if (!bruto) return;                       // você fechou a câmera
+
+  const lido = interpretar(bruto);
+  if (!lido) {
+    return toast('Não reconheci esse QR. Leia o do cupom fiscal, não o do comprovante.', true);
+  }
+
+  if (lido.id && store.existe(lido.id)) {
+    return toast('Essa nota já foi lançada.', true);
+  }
+
+  telas.aplicarQR(lido);
+  vibrar(18);
+  toast(lido.valor ? `${telas.dinheiro(lido.valor)} lido do QR` : 'QR lido — digite o valor');
+  render();
+
+  // O nome da loja chega depois, se chegar: a consulta é opcional, pode estar
+  // offline e não vale segurar a tela por ela.
+  if (lido.cnpj && store.estado().config.buscarCNPJ !== false) {
+    const nome = await nomeDoCNPJ(lido.cnpj);
+    if (nome && telas.qrAtual() === lido) {
+      lido.quem = nome;
+      render();
+    }
+  }
 }
 
 function ligarAjustes() {
@@ -121,6 +163,9 @@ function ligarAjustes() {
     $tela.querySelector(id).onchange = (e) =>
       store.salvarConfig({ [id.slice(1)]: e.target.value.trim() });
   }
+
+  $tela.querySelector('#buscarCNPJ').onchange = (e) =>
+    store.salvarConfig({ buscarCNPJ: e.target.checked });
 
   $tela.querySelector('#addComp').onclick = () => {
     const nome = $tela.querySelector('#cNome').value.trim();
