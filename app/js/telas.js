@@ -1,4 +1,4 @@
-// telas.js — Renderização enxuta, clara e focada em facilidade de uso.
+// telas.js — Renderização completa e enxuta.
 
 import { calcular, porCategoria, doMes, doDia, porDia, projecao, porTipo,
          chaveMes, gastoPorQuis, CATEGORIA_QUIS } from './engine.js';
@@ -29,7 +29,7 @@ const escapar = (s) => String(s).replace(/[&<>"]/g, (c) =>
 
 const diaBR = (iso) => `${String(iso).slice(8, 10)}/${String(iso).slice(5, 7)}`;
 
-/* ===================== HOJE (POSSO GASTAR) ===================== */
+/* ===================== HOJE ===================== */
 
 export function home(ref) {
   const { config, transacoes } = store.estado();
@@ -48,7 +48,6 @@ export function home(ref) {
   const quis = gastoPorQuis(transacoes, ref);
   const lancHoje = ehMesCorrente ? doDia(transacoes, agora).filter((t) => t.valor < 0) : [];
 
-  // Alerta de Contas Vencidas que não foram pagas
   const vencidasPendente = (c.aPagar || []).filter(x => x.diaEfetivo < hojeDia);
   const htmlAlertaVencidas = vencidasPendente.length ? `
   <section class="cartao alerta-vencido" style="border-left: 4px solid #ff4d4d; background: rgba(255, 77, 77, 0.1); margin-bottom: 12px; padding: 12px;">
@@ -76,17 +75,17 @@ export function home(ref) {
   <section class="cartao mini" style="margin-bottom: 12px;">
     <div class="rotulo">Por que eu quis</div>
     <div class="mini-valor atencao-txt">${dinheiro(quis)}</div>
-    <div class="mini-sub">gastos extras/superficiais no mês</div>
+    <div class="mini-sub">gastos extras no mês</div>
   </section>` : ''}
 
   <section class="cartao linhas">
     <div class="linha"><span class="nome">Entradas do mês</span><span class="num pos">${dinheiro(c.receita)}</span></div>
     <div class="linha"><span class="nome">Compromissos do mês</span><span class="num neg">${dinheiro(c.comprometido)}</span></div>
-    <div class="linha"><span class="nome">Gastos variáveis do dia a dia</span><span class="num neg">${dinheiro(c.variaveis)}</span></div>
+    <div class="linha"><span class="nome">Gastos do dia a dia</span><span class="num neg">${dinheiro(c.variaveis)}</span></div>
   </section>
 
   ${(c.aPagar.length || c.pagas.length) ? `
-  <h2 class="titulo">Contas e Compromissos</h2>
+  <h2 class="titulo">Contas do Mês</h2>
   <section class="cartao">
     <div class="resumo-pagar" style="margin-bottom: 10px;">
       <span>${c.pagas.length} de ${c.ativos.length} contas pagas</span>
@@ -124,7 +123,7 @@ function contaHTML(x, hojeDia, paga) {
   </div>`;
 }
 
-/* ===================== LANÇAR (ENTRADA RÁPIDA) ===================== */
+/* ===================== LANÇAR ===================== */
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 let rascunho = { centavos: 0, categoria: 'Mercado', tipo: 'saida', metodo: 'pix', qr: null, data: hojeISO() };
@@ -331,7 +330,7 @@ export function futuro() {
     ${t.parceladas.map((x) => `
       <div class="linha" style="align-items: flex-start; padding: 8px 0;">
         <span class="nome">${escapar(x.nome)}
-          <small display:block;>${x.situacao?.pagas ?? 0} de ${x.parcela.total} parcelas pagas</small>
+          <small style="display:block;">${x.situacao?.pagas ?? 0} de ${x.parcela.total} parcelas pagas</small>
         </span>
         <div style="text-align: right;">
           <span class="num neg">${dinheiro(x.valorMes)}/mês</span>
@@ -345,16 +344,65 @@ export function futuro() {
 /* ===================== AJUSTES ===================== */
 
 export function ajustes() {
-  const { config, fila } = store.estado();
+  const { config, fila, ultimaSync } = store.estado();
+  const hoje = chaveMes(new Date());
   const comps = config.compromissos || [];
 
   return `
-  <h2 class="titulo">Suas Configurações</h2>
+  <h2 class="titulo">Configurações Gerais</h2>
   <section class="cartao">
     <label class="campo"><span>Renda Mensal (R$)</span>
       <input type="number" inputmode="decimal" id="renda" value="${config.renda || ''}"></label>
     <label class="campo"><span>Meta de Guardar por Mês (R$)</span>
       <input type="number" inputmode="decimal" id="meta" value="${config.meta || ''}"></label>
+  </section>
+
+  <h2 class="titulo">Seus Compromissos (${comps.length})</h2>
+  <section class="cartao linhas">
+    ${comps.length ? comps.map((c) => `
+      <div class="linha editavel" data-comp="${c.id}" role="button" tabindex="0">
+        <span class="nome">${escapar(c.nome)}
+          <small>dia ${c.dia} · ${c.parcelas ? c.parcelas + 'x desde ' + escapar(c.inicio || '?') : 'todo mês'}</small>
+        </span>
+        <span class="num neg">${dinheiro(c.valor)}</span>
+      </div>`).join('')
+      : '<div style="color:var(--texto-fraco);font-size:14px">Nenhum compromisso cadastrado ainda.</div>'}
+  </section>
+
+  <section class="cartao" id="formComp">
+    <div class="folha-topo"><b id="cTitulo">Novo compromisso</b>
+      <button class="chip" id="cCancelar" hidden aria-label="Cancelar">✕</button></div>
+    <input type="hidden" id="cId" value="">
+
+    <label class="campo"><span>Nome</span>
+      <input id="cNome" placeholder="Ex: Impressora, CREA, Aluguel..."></label>
+    <div style="display:flex;gap:8px">
+      <label class="campo" style="flex:2"><span>Valor da parcela (R$)</span>
+        <input type="number" inputmode="decimal" id="cValor" placeholder="0,00"></label>
+      <label class="campo" style="flex:1"><span>Dia Venc.</span>
+        <input type="number" min="1" max="31" id="cDia" placeholder="10"></label>
+    </div>
+    <div style="display:flex;gap:8px">
+      <label class="campo" style="flex:1"><span>Nº de parcelas</span>
+        <input type="number" min="1" id="cParcelas" placeholder="vazio = todo mês"></label>
+      <label class="campo" style="flex:1"><span>1ª parcela</span>
+        <input type="month" id="cInicio" value="${hoje}"></label>
+    </div>
+
+    <label class="campo"><span>Cobrança extra só na 1ª parcela (R$)</span>
+      <input type="number" inputmode="decimal" id="cExtra" placeholder="0,00"></label>
+
+    <div class="rotulo-campo">Alguém te devolve esse dinheiro?</div>
+    <div class="chips" style="margin-bottom:10px">
+      <button class="chip" data-reemb="nao">Não, é meu gasto</button>
+      <button class="chip" data-reemb="total">Sim, valor cheio</button>
+      <button class="chip" data-reemb="parte">Sim, uma parte</button>
+    </div>
+    <label class="campo" id="campoReembolso" hidden><span>Quanto devolvem (R$)</span>
+      <input type="number" inputmode="decimal" id="cReembolso" placeholder="0,00"></label>
+
+    <button class="principal" id="addComp" style="margin-top:8px;">Adicionar compromisso</button>
+    <button class="secundario perigo" id="delComp" hidden style="margin-top:8px;">Apagar compromisso</button>
   </section>
 
   <h2 class="titulo">Conexão com a Planilha</h2>
@@ -364,5 +412,9 @@ export function ajustes() {
     <label class="campo"><span>Token de Segurança</span>
       <input id="token" type="password" value="${escapar(config.token || '')}"></label>
     <button class="secundario" id="sincronizar" style="margin-top:8px;">Sincronizar Agora</button>
+  </section>
+
+  <section class="cartao" style="margin-top:12px;">
+    <button class="secundario" id="exportar">Exportar backup (JSON)</button>
   </section>`;
 }
