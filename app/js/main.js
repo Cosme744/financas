@@ -39,10 +39,8 @@ const mesmoMes = (a, b) =>
 /**
  * Registra o pagamento de um compromisso — o da vez ou um adiantamento.
  *
- * O número da parcela vai gravado no lançamento. A contagem em `situacao()`
- * já bastaria para o app funcionar, mas sem o número a planilha vira uma
- * lista de valores idênticos sem dizer qual é qual, e é lá que você vai
- * conferir quando a conta não bater.
+ * Registra o lançamento com a data exata do momento em que foi pago,
+ * evitando acumular todos os pagamentos em uma única data estática.
  */
 function pagarCompromisso(id, adiantando) {
   const c = store.estado().config.compromissos.find((x) => x.id === id);
@@ -51,14 +49,17 @@ function pagarCompromisso(id, adiantando) {
   const s = situacao(c, store.estado().transacoes, new Date());
   const parcela = c.parcelas ? s.proxima : null;
 
+  // Garante a data atual no formato YYYY-MM-DD
+  const hoje = new Date().toISOString().slice(0, 10);
+
   // Sai o valor cheio (é o que a conta debita) e entra o reembolso separado.
-  // Assim a planilha bate com o extrato e o "posso gastar" enxerga só o seu.
   store.lancar({
     valor: -c.valor,
     categoria: c.categoria || c.nome,
     nota: parcela ? `${c.nome} (${parcela}/${c.parcelas})` : c.nome,
     compromissoId: c.id,
     parcela,
+    data: hoje,
   });
 
   if (c.reembolso > 0) {
@@ -67,6 +68,7 @@ function pagarCompromisso(id, adiantando) {
       categoria: 'Reembolso',
       nota: c.nome,
       reembolso: true,
+      data: hoje,
     });
   }
 
@@ -89,8 +91,7 @@ function render() {
     : aba === 'futuro' ? telas.futuro()
     : telas.ajustes();
 
-  // O painel de edição é desenhado por cima, sem trocar de aba: você volta
-  // exatamente para onde estava, no mesmo ponto da rolagem.
+  // O painel de edição é desenhado por cima, sem trocar de aba.
   const alvo = editando ? store.buscar(editando) : null;
   if (editando && !alvo) editando = null;
   if (alvo) $tela.insertAdjacentHTML('beforeend', telas.painelEditar(alvo));
@@ -112,7 +113,6 @@ function ir(destino) {
 /* ---------- eventos por tela ---------- */
 
 function ligarEventos() {
-  // Atalho do estado vazio da home.
   $tela.querySelectorAll('[data-ir]').forEach((b) => {
     b.onclick = () => ir(b.dataset.ir);
   });
@@ -127,7 +127,6 @@ function ligarEventos() {
     $tela.querySelectorAll('[data-pagar]').forEach((b) => {
       b.onclick = () => pagarCompromisso(b.dataset.pagar, false);
     });
-    // Adiantar é o mesmo pagamento, só que fora da vez.
     $tela.querySelectorAll('[data-adiantar]').forEach((b) => {
       b.onclick = () => pagarCompromisso(b.dataset.adiantar, true);
     });
@@ -148,11 +147,6 @@ function ligarEventos() {
 
 /**
  * O formulário de compromisso serve para criar E para editar.
- *
- * Duplicar a tela só para editar significaria manter dois lugares em sincronia
- * cada vez que um campo novo aparece — e acabou de aparecer um. Tocar num
- * compromisso da lista carrega os valores aqui; o botão muda de nome e o id
- * escondido decide se é criação ou substituição.
  */
 function ligarFormCompromisso() {
   const num = (id) => Number($tela.querySelector(id).value) || 0;
@@ -258,8 +252,6 @@ function ligarEdicao() {
   const t = store.buscar(editando);
   if (!t) return;
 
-  // Rascunho local: nada é gravado enquanto você não confirma, então fechar
-  // sem salvar realmente não muda nada.
   let tipo = t.valor < 0 ? 'saida' : 'entrada';
   let metodo = t.metodo;
   let categoria = t.categoria;
@@ -283,8 +275,6 @@ function ligarEdicao() {
   });
 
   $tela.querySelector('#eSalvar').onclick = () => {
-    // Aceita 12,50 e 12.50: exigir um formato só é o tipo de rigor que só
-    // serve para irritar quem está com o celular na mão.
     const bruto = Number(String($tela.querySelector('#eValor').value).replace(',', '.'));
     if (!Number.isFinite(bruto) || bruto <= 0) return toast('Valor inválido', true);
 
@@ -315,10 +305,6 @@ function ligarEdicao() {
 
 /**
  * Abre a câmera, entende o QR e joga o resultado na tela de lançar.
- *
- * Nada é gravado aqui. O caminho é sempre ler -> mostrar -> você confirma,
- * porque um lançamento errado dá mais trabalho para achar e apagar do que
- * um toque a mais para confirmar.
  */
 async function abrirScanner() {
   let bruto;
@@ -327,7 +313,7 @@ async function abrirScanner() {
   } catch (e) {
     return toast(e.message, true);
   }
-  if (!bruto) return;                       // você fechou a câmera
+  if (!bruto) return;
 
   const lido = interpretar(bruto);
   if (!lido) {
@@ -343,8 +329,6 @@ async function abrirScanner() {
   toast(lido.valor ? `${telas.dinheiro(lido.valor)} lido do QR` : 'QR lido — digite o valor');
   render();
 
-  // O nome da loja chega depois, se chegar: a consulta é opcional, pode estar
-  // offline e não vale segurar a tela por ela.
   if (lido.cnpj && store.estado().config.buscarCNPJ !== false) {
     const nome = await nomeDoCNPJ(lido.cnpj);
     if (nome && telas.qrAtual() === lido) {
@@ -369,8 +353,6 @@ function ligarAjustes() {
   $tela.querySelector('#buscarCNPJ').onchange = (e) =>
     store.salvarConfig({ buscarCNPJ: e.target.checked });
 
-  // Página separada de propósito: ela não toca no seu histórico, então dá
-  // para testar um cupom de verdade sem sujar o mês.
   $tela.querySelector('#testarQR').onclick = () => {
     window.open('teste-qr.html', '_blank');
   };
@@ -415,7 +397,6 @@ async function rodarSync(explicito) {
   }
 }
 
-/** Tenta sincronizar sem incomodar: falhou, fica na fila para a próxima. */
 const sincronizarSilencioso = () => rodarSync(false);
 
 /* ---------- navegação global ---------- */
@@ -429,12 +410,10 @@ document.getElementById('mesAnterior').onclick = () => {
   render();
 };
 
-// Toque no título volta para o mês atual.
 $titulo.onclick = () => { ref = new Date(); render(); };
 
 $sync.onclick = () => rodarSync(true);
 
-// Voltar ao app depois de um tempo: recalcula o dia e busca novidades.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     if (mesmoMes(ref, new Date())) ref = new Date();
