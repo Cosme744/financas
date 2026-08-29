@@ -36,23 +36,14 @@ const mesmoMes = (a, b) =>
 
 /* ---------- pagamento de compromisso ---------- */
 
-/**
- * Registra o pagamento de um compromisso — o da vez ou um adiantamento.
- *
- * Registra o lançamento com a data exata do momento em que foi pago,
- * evitando acumular todos os pagamentos em uma única data estática.
- */
 function pagarCompromisso(id, adiantando) {
   const c = store.estado().config.compromissos.find((x) => x.id === id);
   if (!c) return;
 
   const s = situacao(c, store.estado().transacoes, new Date());
   const parcela = c.parcelas ? s.proxima : null;
-
-  // Garante a data atual no formato YYYY-MM-DD
   const hoje = new Date().toISOString().slice(0, 10);
 
-  // Sai o valor cheio (é o que a conta debita) e entra o reembolso separado.
   store.lancar({
     valor: -c.valor,
     categoria: c.categoria || c.nome,
@@ -91,7 +82,6 @@ function render() {
     : aba === 'futuro' ? telas.futuro()
     : telas.ajustes();
 
-  // O painel de edição é desenhado por cima, sem trocar de aba.
   const alvo = editando ? store.buscar(editando) : null;
   if (editando && !alvo) editando = null;
   if (alvo) $tela.insertAdjacentHTML('beforeend', telas.painelEditar(alvo));
@@ -145,19 +135,17 @@ function ligarEventos() {
   if (aba === 'ajustes') ligarAjustes();
 }
 
-/**
- * O formulário de compromisso serve para criar E para editar.
- */
 function ligarFormCompromisso() {
-  const num = (id) => Number($tela.querySelector(id).value) || 0;
+  const num = (id) => Number($tela.querySelector(id)?.value) || 0;
   const $ = (id) => $tela.querySelector(id);
 
-  let modo = 'nao';   // nao | total | parte
+  let modo = 'nao';
 
   const pintarReembolso = () => {
     $tela.querySelectorAll('[data-reemb]').forEach((b) =>
       b.classList.toggle('on', b.dataset.reemb === modo));
-    $('#campoReembolso').hidden = modo !== 'parte';
+    const campo = $('#campoReembolso');
+    if (campo) campo.hidden = modo !== 'parte';
   };
 
   $tela.querySelectorAll('[data-reemb]').forEach((b) => {
@@ -166,36 +154,38 @@ function ligarFormCompromisso() {
 
   const limpar = () => {
     for (const id of ['#cId', '#cNome', '#cValor', '#cDia', '#cParcelas', '#cExtra', '#cReembolso']) {
-      $(id).value = '';
+      const el = $(id);
+      if (el) el.value = '';
     }
     modo = 'nao';
     pintarReembolso();
-    $('#cTitulo').textContent = 'Novo compromisso';
-    $('#addComp').textContent = 'Adicionar compromisso';
-    $('#delComp').hidden = true;
-    $('#cCancelar').hidden = true;
+    if ($('#cTitulo')) $('#cTitulo').textContent = 'Novo compromisso';
+    if ($('#addComp')) $('#addComp').textContent = 'Adicionar compromisso';
+    if ($('#delComp')) $('#delComp').hidden = true;
+    if ($('#cCancelar')) $('#cCancelar').hidden = true;
   };
 
   const carregar = (c) => {
-    $('#cId').value = c.id;
-    $('#cNome').value = c.nome || '';
-    $('#cValor').value = c.valor || '';
-    $('#cDia').value = c.dia || '';
-    $('#cParcelas').value = c.parcelas || '';
-    $('#cInicio').value = c.inicio || '';
-    $('#cExtra').value = c.extraPrimeira || '';
-    $('#cReembolso').value = c.reembolso || '';
+    if ($('#cId')) $('#cId').value = c.id;
+    if ($('#cNome')) $('#cNome').value = c.nome || '';
+    if ($('#cValor')) $('#cValor').value = c.valor || '';
+    if ($('#cDia')) $('#cDia').value = c.dia || '';
+    if ($('#cParcelas')) $('#cParcelas').value = c.parcelas || '';
+    if ($('#cInicio')) $('#cInicio').value = c.inicio || '';
+    if ($('#cExtra')) $('#cExtra').value = c.extraPrimeira || '';
+    if ($('#cReembolso')) $('#cReembolso').value = c.reembolso || '';
     modo = c.reembolsoTotal ? 'total' : (c.reembolso ? 'parte' : 'nao');
     pintarReembolso();
-    $('#cTitulo').textContent = 'Editando: ' + c.nome;
-    $('#addComp').textContent = 'Salvar alterações';
-    $('#delComp').hidden = false;
-    $('#cCancelar').hidden = false;
-    $('#formComp').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if ($('#cTitulo')) $('#cTitulo').textContent = 'Editando: ' + c.nome;
+    if ($('#addComp')) $('#addComp').textContent = 'Salvar alterações';
+    if ($('#delComp')) $('#delComp').hidden = false;
+    if ($('#cCancelar')) $('#cCancelar').hidden = false;
+    $('#formComp')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   pintarReembolso();
 
+  // Clique na lista de compromissos para carregar no formulário
   $tela.querySelectorAll('[data-comp]').forEach((b) => {
     b.onclick = () => {
       const c = store.estado().config.compromissos.find((x) => x.id === b.dataset.comp);
@@ -203,51 +193,57 @@ function ligarFormCompromisso() {
     };
   });
 
-  $('#cCancelar').onclick = () => { limpar(); render(); };
+  const btnCancelar = $('#cCancelar');
+  if (btnCancelar) btnCancelar.onclick = () => { limpar(); render(); };
 
-  $('#addComp').onclick = () => {
-    const nome = $('#cNome').value.trim();
-    const valor = num('#cValor');
-    if (!nome || !valor) return toast('Preencha nome e valor', true);
+  const btnAdd = $('#addComp');
+  if (btnAdd) {
+    btnAdd.onclick = () => {
+      const nome = $('#cNome')?.value.trim();
+      const valor = num('#cValor');
+      if (!nome || !valor) return toast('Preencha nome e valor', true);
 
-    const id = $('#cId').value;
-    const dados = {
-      id: id || store.novoId(),
-      nome,
-      valor,
-      dia: Math.min(31, Math.max(1, num('#cDia') || 1)),
-      parcelas: num('#cParcelas') || null,
-      inicio: $('#cInicio').value || null,
-      extraPrimeira: num('#cExtra'),
-      reembolso: modo === 'parte' ? num('#cReembolso') : 0,
-      reembolsoTotal: modo === 'total',
-      categoria: nome,
+      const id = $('#cId')?.value;
+      const dados = {
+        id: id || store.novoId(),
+        nome,
+        valor,
+        dia: Math.min(31, Math.max(1, num('#cDia') || 1)),
+        parcelas: num('#cParcelas') || null,
+        inicio: $('#cInicio')?.value || null,
+        extraPrimeira: num('#cExtra'),
+        reembolso: modo === 'parte' ? num('#cReembolso') : 0,
+        reembolsoTotal: modo === 'total',
+        categoria: nome,
+      };
+
+      const lista = store.estado().config.compromissos || [];
+      store.salvarConfig({
+        compromissos: id ? lista.map((c) => (c.id === id ? dados : c)) : [...lista, dados],
+      });
+      toast(id ? `${nome} atualizado` : `${nome} adicionado`);
+      render();
+      sincronizarSilencioso();
     };
+  }
 
-    const lista = store.estado().config.compromissos || [];
-    store.salvarConfig({
-      compromissos: id ? lista.map((c) => (c.id === id ? dados : c)) : [...lista, dados],
-    });
-    toast(id ? `${nome} atualizado` : `${nome} adicionado`);
-    render();
-    sincronizarSilencioso();
-  };
-
-  $('#delComp').onclick = () => {
-    const id = $('#cId').value;
-    if (!id) return;
-    const c = store.estado().config.compromissos.find((x) => x.id === id);
-    if (!confirm(`Apagar "${c ? c.nome : 'este compromisso'}"? Os lançamentos já feitos ficam.`)) return;
-    store.salvarConfig({
-      compromissos: store.estado().config.compromissos.filter((x) => x.id !== id),
-    });
-    toast('Compromisso apagado');
-    render();
-    sincronizarSilencioso();
-  };
+  const btnDel = $('#delComp');
+  if (btnDel) {
+    btnDel.onclick = () => {
+      const id = $('#cId')?.value;
+      if (!id) return;
+      const c = store.estado().config.compromissos.find((x) => x.id === id);
+      if (!confirm(`Apagar "${c ? c.nome : 'este compromisso'}"? Os lançamentos já feitos ficam.`)) return;
+      store.salvarConfig({
+        compromissos: store.estado().config.compromissos.filter((x) => x.id !== id),
+      });
+      toast('Compromisso apagado');
+      render();
+      sincronizarSilencioso();
+    };
+  }
 }
 
-/** Liga o painel de edição de um lançamento. */
 function ligarEdicao() {
   const t = store.buscar(editando);
   if (!t) return;
@@ -257,8 +253,8 @@ function ligarEdicao() {
   let categoria = t.categoria;
 
   const fechar = () => { editando = null; render(); };
-  $tela.querySelector('#fecharEdicao').onclick = fechar;
-  $tela.querySelector('#fecharEdicaoX').onclick = fechar;
+  if ($tela.querySelector('#fecharEdicao')) $tela.querySelector('#fecharEdicao').onclick = fechar;
+  if ($tela.querySelector('#fecharEdicaoX')) $tela.querySelector('#fecharEdicaoX').onclick = fechar;
 
   const marcar = (attr, valor) => {
     $tela.querySelectorAll(`[${attr}]`).forEach((b) =>
@@ -274,38 +270,41 @@ function ligarEdicao() {
     b.onclick = () => { categoria = b.dataset.ecat; marcar('data-ecat', categoria); };
   });
 
-  $tela.querySelector('#eSalvar').onclick = () => {
-    const bruto = Number(String($tela.querySelector('#eValor').value).replace(',', '.'));
-    if (!Number.isFinite(bruto) || bruto <= 0) return toast('Valor inválido', true);
+  const btnSalvar = $tela.querySelector('#eSalvar');
+  if (btnSalvar) {
+    btnSalvar.onclick = () => {
+      const bruto = Number(String($tela.querySelector('#eValor').value).replace(',', '.'));
+      if (!Number.isFinite(bruto) || bruto <= 0) return toast('Valor inválido', true);
 
-    store.atualizar(t.id, {
-      valor: tipo === 'saida' ? -Math.abs(bruto) : Math.abs(bruto),
-      data: $tela.querySelector('#eData').value || t.data,
-      categoria,
-      metodo,
-      nota: $tela.querySelector('#eNota').value.trim(),
-    });
-    editando = null;
-    vibrar(14);
-    toast('Lançamento atualizado');
-    render();
-    sincronizarSilencioso();
-  };
+      store.atualizar(t.id, {
+        valor: tipo === 'saida' ? -Math.abs(bruto) : Math.abs(bruto),
+        data: $tela.querySelector('#eData').value || t.data,
+        categoria,
+        metodo,
+        nota: $tela.querySelector('#eNota').value.trim(),
+      });
+      editando = null;
+      vibrar(14);
+      toast('Lançamento atualizado');
+      render();
+      sincronizarSilencioso();
+    };
+  }
 
-  $tela.querySelector('#eApagar').onclick = () => {
-    if (!confirm('Apagar este lançamento? Ele sai daqui e da planilha.')) return;
-    store.apagar(t.id);
-    editando = null;
-    vibrar(20);
-    toast('Lançamento apagado');
-    render();
-    sincronizarSilencioso();
-  };
+  const btnApagar = $tela.querySelector('#eApagar');
+  if (btnApagar) {
+    btnApagar.onclick = () => {
+      if (!confirm('Apagar este lançamento? Ele sai daqui e da planilha.')) return;
+      store.apagar(t.id);
+      editando = null;
+      vibrar(20);
+      toast('Lançamento apagado');
+      render();
+      sincronizarSilencioso();
+    };
+  }
 }
 
-/**
- * Abre a câmera, entende o QR e joga o resultado na tela de lançar.
- */
 async function abrirScanner() {
   let bruto;
   try {
@@ -339,36 +338,38 @@ async function abrirScanner() {
 }
 
 function ligarAjustes() {
-  const num = (id) => Number($tela.querySelector(id).value) || 0;
+  const num = (id) => Number($tela.querySelector(id)?.value) || 0;
 
   for (const id of ['#renda', '#meta']) {
-    $tela.querySelector(id).onchange = () =>
-      store.salvarConfig({ renda: num('#renda'), meta: num('#meta') });
+    const el = $tela.querySelector(id);
+    if (el) {
+      el.onchange = () => store.salvarConfig({ renda: num('#renda'), meta: num('#meta') });
+    }
   }
   for (const id of ['#apiUrl', '#token']) {
-    $tela.querySelector(id).onchange = (e) =>
-      store.salvarConfig({ [id.slice(1)]: e.target.value.trim() });
+    const el = $tela.querySelector(id);
+    if (el) {
+      el.onchange = (e) => store.salvarConfig({ [id.slice(1)]: e.target.value.trim() });
+    }
   }
 
-  $tela.querySelector('#buscarCNPJ').onchange = (e) =>
-    store.salvarConfig({ buscarCNPJ: e.target.checked });
-
-  $tela.querySelector('#testarQR').onclick = () => {
-    window.open('teste-qr.html', '_blank');
-  };
-
+  // Liga os eventos dos formulários de compromisso
   ligarFormCompromisso();
 
-  $tela.querySelector('#sincronizar').onclick = () => rodarSync(true);
+  const btnSync = $tela.querySelector('#sincronizar');
+  if (btnSync) btnSync.onclick = () => rodarSync(true);
 
-  $tela.querySelector('#exportar').onclick = () => {
-    const blob = new Blob([JSON.stringify(store.estado(), null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `backup-financas-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  const btnExp = $tela.querySelector('#exportar');
+  if (btnExp) {
+    btnExp.onclick = () => {
+      const blob = new Blob([JSON.stringify(store.estado(), null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `backup-financas-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+  }
 }
 
 /* ---------- sincronização ---------- */
@@ -405,13 +406,15 @@ document.querySelectorAll('.abas button').forEach((b) => {
   b.onclick = () => { vibrar(8); ir(b.dataset.aba); };
 });
 
-document.getElementById('mesAnterior').onclick = () => {
-  ref = new Date(ref.getFullYear(), ref.getMonth() - 1, 1);
-  render();
-};
+const btnMesAnt = document.getElementById('mesAnterior');
+if (btnMesAnt) {
+  btnMesAnt.onclick = () => {
+    ref = new Date(ref.getFullYear(), ref.getMonth() - 1, 1);
+    render();
+  };
+}
 
 $titulo.onclick = () => { ref = new Date(); render(); };
-
 $sync.onclick = () => rodarSync(true);
 
 document.addEventListener('visibilitychange', () => {
