@@ -1,7 +1,8 @@
 // telas.js — Renderização completa e enxuta.
 
-import { calcular, porCategoria, doMes, doDia, porDia, projecao, porTipo,
-         chaveMes, gastoPorQuis, CATEGORIA_QUIS } from './engine.js';
+import { calcular, porCategoria, doMes, doDia, porDia, projecao, faixas,
+         chaveMes, gastoPorQuis, CATEGORIA_QUIS, hojeISO, rotuloMes,
+         resumoParcelamento } from './engine.js';
 import * as store from './store.js';
 
 export const CATEGORIAS = [
@@ -43,7 +44,8 @@ export function home(ref) {
   }
 
   const agora = new Date();
-  const hojeDia = agora.getDate();
+  const hojeDia = chaveMes(ref) === chaveMes(agora) ? agora.getDate()
+    : (ref < agora ? 32 : 0);
   const ehMesCorrente = chaveMes(ref) === chaveMes(agora);
   const quis = gastoPorQuis(transacoes, ref);
   const lancHoje = ehMesCorrente ? doDia(transacoes, agora).filter((t) => t.valor < 0) : [];
@@ -97,7 +99,9 @@ export function home(ref) {
 
   ${lancHoje.length ? `
   <h2 class="titulo">O que você gastou hoje</h2>
-  <section class="cartao linhas">${lancHoje.map(lancamentoHTML).join('')}</section>` : ''}`;
+  <section class="cartao linhas">${lancHoje.map(lancamentoHTML).join('')}</section>` : ''}
+
+  ${extratoHTML(ref)}`;
 }
 
 const lancamentoHTML = (t) => `
@@ -110,6 +114,12 @@ const lancamentoHTML = (t) => `
 
 function contaHTML(x, hojeDia, paga) {
   const atrasada = !paga && x.diaEfetivo < hojeDia;
+  const n = paga ? x.situacao.pagas : x.situacao.proxima;
+  const qual = x.parcela.total ? ` · parcela ${n}/${x.parcela.total}` : '';
+  const repasse = x.reembolsoMes > 0
+    ? `<small style="display:block;color:var(--texto-fraco);margin-top:2px">${x.reembolsoMes >= x.valorMes
+        ? 'Devolvido por terceiro · não é seu gasto — não gaste esse dinheiro'
+        : `Devolvem ${dinheiro(x.reembolsoMes)} · seu custo ${dinheiro(x.liquidoMes)}`}</small>` : '';
   return `
   <div class="conta ${paga ? 'paga' : ''} ${atrasada ? 'atrasada' : ''}" style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
     <div class="conta-topo" style="display:flex; justify-content:space-between;">
@@ -117,15 +127,15 @@ function contaHTML(x, hojeDia, paga) {
       <span class="num ${paga ? '' : 'neg'}">${dinheiro(x.valorMes)}</span>
     </div>
     <div class="conta-info" style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-      <small style="color:var(--texto-fraco);">${paga ? 'Paga' : (atrasada ? 'Venceu dia ' + x.diaEfetivo : 'Vence dia ' + x.diaEfetivo)}</small>
+      <small style="color:var(--texto-fraco);">${paga ? 'Paga' : (atrasada ? 'Venceu dia ' + x.diaEfetivo : 'Vence dia ' + x.diaEfetivo)}${qual}</small>
       ${!paga ? `<button class="secundario pagar" data-pagar="${x.id}" style="padding: 2px 8px; font-size:11px;">Marcar como paga</button>` : ''}
     </div>
+    ${repasse}
   </div>`;
 }
 
 /* ===================== LANÇAR ===================== */
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
 let rascunho = { centavos: 0, categoria: 'Mercado', tipo: 'saida', metodo: 'pix', qr: null, data: hojeISO() };
 
 export function aplicarQR(r) {
@@ -273,25 +283,17 @@ export function painelEditar(t) {
 
 /* ===================== MÊS (EXTRATO) ===================== */
 
-export function mes(ref) {
-  const { config, transacoes } = store.estado();
+function extratoHTML(ref) {
+  const { transacoes } = store.estado();
   const lista = doMes(transacoes, ref);
-  if (!lista.length) return '<div class="vazio">Nenhum lançamento neste mês.</div>';
+  if (!lista.length) return '';
 
-  const c = calcular(transacoes, config, ref);
   const cats = porCategoria(transacoes, ref, true);
   const dias = porDia(transacoes, ref);
 
   return `
-  <h2 class="titulo">Resumo Financeiro do Mês</h2>
-  <section class="cartao linhas">
-    <div class="linha"><span class="nome">Total Entradas</span><span class="num pos">${dinheiro(c.receita)}</span></div>
-    <div class="linha"><span class="nome">Compromissos Pagos</span><span class="num neg">${dinheiro(c.pagos)}</span></div>
-    <div class="linha"><span class="nome">Gastos do Dia a Dia</span><span class="num neg">${dinheiro(c.variaveis)}</span></div>
-  </section>
-
   ${cats.length ? `
-  <h2 class="titulo">Gastos por Categoria</h2>
+  <h2 class="titulo">Gastos por categoria</h2>
   <section class="cartao">
     ${cats.map((x) => `
       <div class="linha">
@@ -300,7 +302,7 @@ export function mes(ref) {
       </div>`).join('')}
   </section>` : ''}
 
-  <h2 class="titulo">Lançamentos do Mês (${lista.length})</h2>
+  <h2 class="titulo">Extrato do mês (${lista.length})</h2>
   <section class="cartao">
     ${dias.map((d) => `
       <div class="dia-cab" style="font-weight:bold; margin-top:8px;"><span>${diaBR(d.data)}</span></div>
@@ -312,32 +314,56 @@ export function mes(ref) {
 
 export function futuro() {
   const { config, transacoes } = store.estado();
-  if (!(config.compromissos || []).length) {
-    return `<div class="vazio"><p>Nenhum compromisso cadastrado.</p></div>`;
-  }
+  const comps = config.compromissos || [];
+  if (!comps.length) return '<div class="vazio"><p>Nenhum compromisso cadastrado.</p></div>';
 
-  const t = porTipo(config, new Date(), transacoes);
+  const hoje = new Date();
+  // Próximos 12 meses, a partir do mês que vem.
+  const linhas = projecao(config, transacoes, 12, hoje).slice(1);
+  const prox = linhas[0];
+  const grupos = faixas(linhas);
+
+  const parcs = comps.filter((c) => c.parcelas)
+    .map((c) => resumoParcelamento(c, transacoes, hoje))
+    .filter((p) => !p.quitado)
+    .sort((a, b) => a.fim - b.fim);
 
   return `
-  <section class="cartao destaque">
-    <div class="rotulo">Compromissos Mensais Ativos</div>
-    <div class="valor">${grande(t.total)}</div>
+  <section class="cartao destaque ${prox.sobra < 0 ? 'estourado' : 'ok'}">
+    <div class="rotulo">Sobra prevista em ${prox.rotulo}</div>
+    <div class="valor">${grande(prox.sobra)}</div>
+    <div class="sub">renda ${dinheiro(config.renda)} − compromissos ${dinheiro(prox.comprometido)}
+      − dia a dia ~${dinheiro(prox.variavelEstimado)}</div>
   </section>
 
-  ${t.parceladas.length ? `
-  <h2 class="titulo">Seus Parcelamentos</h2>
-  <section class="cartao linhas">
-    ${t.parceladas.map((x) => `
-      <div class="linha" style="align-items: flex-start; padding: 8px 0;">
-        <span class="nome">${escapar(x.nome)}
-          <small style="display:block;">${x.situacao?.pagas ?? 0} de ${x.parcela.total} parcelas pagas</small>
+  <h2 class="titulo">Quando melhora</h2>
+  <section class="cartao">
+    ${grupos.map((g, i) => `
+      <div class="linha" style="align-items:flex-start; padding:8px 0;">
+        <span class="nome"><b>${g.rotulo}</b>
+          <small style="display:block">compromissos ${dinheiro(g.comprometido)}/mês</small>
+          ${i > 0 && g.alivio > 0.005 ? `<small style="display:block;color:var(--verde,#3ecf8e)">▼ ${dinheiro(g.alivio)} a menos por mês</small>` : ''}
+          ${g.terminando.length ? `<small style="display:block">🎉 última parcela: ${g.terminando.map((t) => escapar(t.nome)).join(', ')}</small>` : ''}
         </span>
-        <div style="text-align: right;">
-          <span class="num neg">${dinheiro(x.valorMes)}/mês</span>
-          ${x.parcela.faltaPagar ? `<small style="color:var(--texto-fraco); font-size:11px; display:block;">Resta: ${dinheiro(x.parcela.faltaPagar)}</small>` : ''}
+        <span class="num ${g.sobra < 0 ? 'neg' : 'pos'}">${dinheiro(g.sobra)}<small style="display:block;font-size:11px;color:var(--texto-fraco)">sobra/mês</small></span>
+      </div>`).join('')}
+  </section>
+
+  ${parcs.length ? `
+  <h2 class="titulo">Parcelamentos</h2>
+  <section class="cartao">
+    ${parcs.map((p) => `
+      <div class="linha" style="align-items:flex-start; padding:8px 0;">
+        <span class="nome">${escapar(p.nome)}
+          <small style="display:block">${p.pagas} de ${p.parcelas} pagas · faltam ${p.faltam} · última em ${rotuloMes(p.fim)}</small>
+          ${p.reembolsoTotal ? '<small style="display:block;color:var(--texto-fraco)">devolvido por terceiro · não pesa no seu bolso</small>' : ''}
+        </span>
+        <div style="text-align:right">
+          <span class="num neg">${dinheiro(p.valor)}/mês</span>
+          <small style="display:block;font-size:11px;color:var(--texto-fraco)">resta ${dinheiro(p.restaBruto)}</small>
+          ${p.restaLiquido !== p.restaBruto ? `<small style="display:block;font-size:11px;color:var(--texto-fraco)">seu: ${dinheiro(p.restaLiquido)}</small>` : ''}
         </div>
-      </div>
-    `).join('')}
+      </div>`).join('')}
   </section>` : ''}`;
 }
 

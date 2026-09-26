@@ -3,6 +3,9 @@
 
 const CHAVE = 'cf.dados.v1';
 
+// Data LOCAL. toISOString() é UTC: depois das 20h (UTC-4) viraria amanhã.
+const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
 const PADRAO = {
   config: {
     renda: 0,
@@ -77,7 +80,7 @@ export function lancar({ valor, categoria, nota = '', metodo = 'pix', data,
   const t = {
     id: id || novoId(),
     origem,
-    data: data || new Date().toISOString().slice(0, 10),
+    data: data || hojeISO(),
     valor,
     categoria,
     nota,

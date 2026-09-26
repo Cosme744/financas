@@ -91,6 +91,13 @@ export const doMes = (transacoes, ref) => {
 
 export const chaveDia = (d) => `${chaveMes(d)}-${String(d.getDate()).padStart(2, '0')}`;
 
+/** Hoje em 'YYYY-MM-DD' no fuso do celular (nunca UTC). */
+export const hojeISO = () => chaveDia(new Date());
+
+/** 'out/26' */
+export const rotuloMes = (d) =>
+  d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '/' + String(d.getFullYear()).slice(2);
+
 export const doDia = (transacoes, ref) => {
   const dia = chaveDia(ref);
   return transacoes.filter((t) => String(t.data).slice(0, 10) === dia);
@@ -193,6 +200,28 @@ export function situacao(c, transacoes, ref) {
     adiantadas: Math.max(0, Math.min(pagas, c.parcelas) - cobradas),
     faltam: Math.max(0, c.parcelas - pagas),
     proxima: Math.min(pagas + 1, c.parcelas),
+  };
+}
+
+/**
+ * Retrato de um parcelamento, inclusive o que ainda nem começou.
+ * `restaBruto` é o que sai da conta; `restaLiquido` é o que pesa no SEU bolso
+ * (zero quando alguém te devolve o valor cheio).
+ */
+export function resumoParcelamento(c, transacoes, hoje = new Date()) {
+  const s = situacao(c, transacoes, hoje);
+  const pagas = s.pagas || 0;
+  const faltam = Math.max(0, c.parcelas - pagas);
+  const [a, m] = String(c.inicio || chaveMes(hoje)).split('-').map(Number);
+  const fim = new Date(a, m - 1 + c.parcelas - 1, 1);
+  const extra = pagas === 0 ? (c.extraPrimeira || 0) : 0;
+  const bruto = faltam * (c.valor || 0) + extra;
+  const devolve = c.reembolsoTotal ? bruto : faltam * (c.reembolso || 0);
+  return {
+    ...c, pagas, faltam, fim, quitado: s.quitado,
+    restaBruto: bruto,
+    restaLiquido: bruto - devolve,
+    liquidoMensal: c.reembolsoTotal ? 0 : (c.valor || 0) - (c.reembolso || 0),
   };
 }
 

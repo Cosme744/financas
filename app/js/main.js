@@ -2,7 +2,7 @@
 
 import * as store from './store.js';
 import * as telas from './telas.js';
-import { situacao } from './engine.js';
+import { situacao, valorNoMes, reembolsoNoMes, hojeISO } from './engine.js';
 import { sincronizar } from './sync.js';
 import { escanear, interpretar, nomeDoCNPJ } from './qr.js';
 
@@ -42,10 +42,19 @@ function pagarCompromisso(id, adiantando) {
 
   const s = situacao(c, store.estado().transacoes, new Date());
   const parcela = c.parcelas ? s.proxima : null;
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeISO();
+
+  // O mês a que ESTA parcela pertence decide o seguro da 1ª e o reembolso.
+  let refParcela = new Date();
+  if (parcela && c.inicio) {
+    const [a, m] = c.inicio.split('-').map(Number);
+    refParcela = new Date(a, m - 1 + parcela - 1, 1);
+  }
+  const valor = valorNoMes(c, refParcela) || c.valor;
+  const devolvido = reembolsoNoMes(c, refParcela);
 
   store.lancar({
-    valor: -c.valor,
+    valor: -valor,
     categoria: c.categoria || c.nome,
     nota: parcela ? `${c.nome} (${parcela}/${c.parcelas})` : c.nome,
     compromissoId: c.id,
@@ -53,11 +62,13 @@ function pagarCompromisso(id, adiantando) {
     data: hoje,
   });
 
-  if (c.reembolso > 0) {
+  // Reembolso parcial OU total: a devolução entra junto, marcada como
+  // dinheiro de passagem — não é renda e não aumenta o "pode gastar".
+  if (devolvido > 0) {
     store.lancar({
-      valor: c.reembolso,
+      valor: devolvido,
       categoria: 'Reembolso',
-      nota: c.nome,
+      nota: parcela ? `${c.nome} (${parcela}/${c.parcelas}) — devolvido` : `${c.nome} — devolvido`,
       reembolso: true,
       data: hoje,
     });
@@ -78,7 +89,6 @@ function render() {
   $tela.innerHTML =
     aba === 'home' ? telas.home(ref)
     : aba === 'lancar' ? telas.lancar()
-    : aba === 'mes' ? telas.mes(ref)
     : aba === 'futuro' ? telas.futuro()
     : telas.ajustes();
 
@@ -365,7 +375,7 @@ function ligarAjustes() {
       const blob = new Blob([JSON.stringify(store.estado(), null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `backup-financas-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `backup-financas-${hojeISO()}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
     };

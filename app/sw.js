@@ -1,7 +1,7 @@
 // sw.js — deixa o app abrir offline. O que é da planilha nunca vai para o cache:
 // saldo velho servido como novo seria pior do que uma tela de erro.
 
-const CACHE = 'financas-v3';
+const CACHE = 'financas-v4';
 const CASCA = [
   './', './index.html', './manifest.webmanifest',
   './css/styles.css',

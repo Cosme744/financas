@@ -46,7 +46,8 @@ function tlv(s) {
   return out;
 }
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+// Data LOCAL. toISOString() é UTC: depois das 20h (UTC-4) viraria amanhã.
+const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /* ==================== Pix ==================== */
 
