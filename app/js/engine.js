@@ -189,7 +189,8 @@ export function situacao(c, transacoes, ref) {
     return { pendente: !pagoNoMes, pagas: pagamentos.length, adiantadas: 0, quitado: false };
   }
 
-  const pagas = pagamentos.length;
+  // pagasAntes: parcelas quitadas antes de usar o app, sem lançamento.
+  const pagas = pagamentos.length + (c.pagasAntes || 0);
   const cobradas = c.inicio ? mesesDesde(c.inicio, ref) + 1 : 1;
   const quitado = pagas >= c.parcelas;
 

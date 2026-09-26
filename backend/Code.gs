@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 15;
+const VERSAO = 16;
 
 const PADRAO = {
   TOKEN: '',
@@ -135,7 +135,8 @@ const COLUNAS = ['id', 'data', 'valor', 'categoria', 'conta', 'nota', 'metodo',
                  'compromissoId', 'reembolso', 'origem', 'criadoEm', 'parcela'];
 
 const COLUNAS_COMP = ['id', 'nome', 'valor', 'dia', 'categoria', 'conta',
-                      'inicio', 'parcelas', 'reembolso', 'extraPrimeira', 'reembolsoTotal'];
+                      'inicio', 'parcelas', 'reembolso', 'extraPrimeira', 'reembolsoTotal',
+                      'pagasAntes'];
 
 // ============================================================
 // API
@@ -377,6 +378,8 @@ function lerConfig() {
           // Quem pegou o dinheiro devolve o valor cheio: o compromisso passa
           // pela sua conta sem nunca ser seu.
           reembolsoTotal: ehVerdade(r[10]),
+          // Parcelas quitadas antes de usar o app, sem lançamento que as prove.
+          pagasAntes: Number(r[11]) || 0,
         }))
     : [];
 
@@ -406,6 +409,7 @@ function gravarConfig(cfg) {
   ]);
 
   const f = aba(ABAS.COMP, COLUNAS_COMP);
+  f.getRange(1, 1, 1, COLUNAS_COMP.length).setValues([COLUNAS_COMP]);   // cabeçalho sempre completo
   const m = f.getLastRow() - 1;
   if (m > 0) f.getRange(2, 1, m, COLUNAS_COMP.length).clearContent();
 
@@ -416,6 +420,7 @@ function gravarConfig(cfg) {
       x.categoria || x.nome, x.conta || '',
       x.inicio || '', x.parcelas || '', Number(x.reembolso) || 0,
       Number(x.extraPrimeira) || 0, x.reembolsoTotal === true,
+      Number(x.pagasAntes) || 0,
     ]));
   }
   atualizarPainel();
@@ -486,7 +491,7 @@ function situacao(c, transacoes, ref) {
     return { pendente: !pago, pagas: pagamentos.length, adiantadas: 0, quitado: false };
   }
 
-  const pagas = pagamentos.length;
+  const pagas = pagamentos.length + (c.pagasAntes || 0);
   const partes = String(c.inicio || '').split('-');
   const cobradas = c.inicio
     ? (ref.getFullYear() - Number(partes[0])) * 12 + (ref.getMonth() - (Number(partes[1]) - 1)) + 1

@@ -426,6 +426,8 @@ export function ajustes() {
       <label class="campo" style="flex:1"><span>1ª parcela</span>
         <input type="month" id="cInicio" value="${hoje}"></label>
     </div>
+    <label class="campo"><span>Parcelas já pagas antes de usar o app</span>
+      <input type="number" min="0" id="cPagas" placeholder="0 = nenhuma"></label>
 
     <label class="campo"><span>Cobrança extra só na 1ª parcela (R$)</span>
       <input type="number" inputmode="decimal" id="cExtra" placeholder="0,00"></label>

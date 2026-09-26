@@ -163,7 +163,7 @@ function ligarFormCompromisso() {
   });
 
   const limpar = () => {
-    for (const id of ['#cId', '#cNome', '#cValor', '#cDia', '#cParcelas', '#cExtra', '#cReembolso']) {
+    for (const id of ['#cId', '#cNome', '#cValor', '#cDia', '#cParcelas', '#cPagas', '#cExtra', '#cReembolso']) {
       const el = $(id);
       if (el) el.value = '';
     }
@@ -182,6 +182,7 @@ function ligarFormCompromisso() {
     if ($('#cDia')) $('#cDia').value = c.dia || '';
     if ($('#cParcelas')) $('#cParcelas').value = c.parcelas || '';
     if ($('#cInicio')) $('#cInicio').value = c.inicio || '';
+    if ($('#cPagas')) $('#cPagas').value = c.pagasAntes || '';
     if ($('#cExtra')) $('#cExtra').value = c.extraPrimeira || '';
     if ($('#cReembolso')) $('#cReembolso').value = c.reembolso || '';
     modo = c.reembolsoTotal ? 'total' : (c.reembolso ? 'parte' : 'nao');
@@ -214,7 +215,11 @@ function ligarFormCompromisso() {
       if (!nome || !valor) return toast('Preencha nome e valor', true);
 
       const id = $('#cId')?.value;
+      const lista = store.estado().config.compromissos || [];
+      // Editar não pode apagar o que o formulário não mostra (conta, categoria).
+      const atual = (id && lista.find((c) => c.id === id)) || {};
       const dados = {
+        ...atual,
         id: id || store.novoId(),
         nome,
         valor,
@@ -224,10 +229,10 @@ function ligarFormCompromisso() {
         extraPrimeira: num('#cExtra'),
         reembolso: modo === 'parte' ? num('#cReembolso') : 0,
         reembolsoTotal: modo === 'total',
-        categoria: nome,
+        pagasAntes: num('#cParcelas') ? Math.min(num('#cPagas'), num('#cParcelas')) : 0,
+        categoria: atual.categoria || nome,
       };
 
-      const lista = store.estado().config.compromissos || [];
       store.salvarConfig({
         compromissos: id ? lista.map((c) => (c.id === id ? dados : c)) : [...lista, dados],
       });
