@@ -10,6 +10,8 @@ export const CATEGORIAS = [
   CATEGORIA_QUIS, 'Outros',
 ];
 
+export const CATEGORIAS_ENTRADA = ['Salário', 'Férias', 'Rendimento', 'Extra'];
+
 export const METODOS = [
   { id: 'pix', nome: 'Pix' },
   { id: 'credito', nome: 'Crédito' },
@@ -184,7 +186,7 @@ export function lancar() {
 
     <div class="rotulo-campo">Categoria</div>
     <div class="chips" style="display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap;">
-      ${CATEGORIAS.map((cat) =>
+      ${(rascunho.tipo === 'entrada' ? CATEGORIAS_ENTRADA : CATEGORIAS).map((cat) =>
         `<button class="chip ${rascunho.categoria === cat ? 'on' : ''}" data-cat="${cat}">${cat}</button>`).join('')}
     </div>
 
@@ -215,7 +217,11 @@ export function ligarLancar(raiz, rerender, onSalvo, abrirScanner) {
     b.onclick = () => { rascunho.metodo = b.dataset.metodo; rerender(); };
   });
   raiz.querySelectorAll('[data-tipo]').forEach((b) => {
-    b.onclick = () => { rascunho.tipo = b.dataset.tipo; rerender(); };
+    b.onclick = () => {
+      rascunho.tipo = b.dataset.tipo;
+      rascunho.categoria = rascunho.tipo === 'entrada' ? 'Salário' : 'Mercado';
+      rerender();
+    };
   });
 
   const $data = raiz.querySelector('#lData');
@@ -234,14 +240,16 @@ export function ligarLancar(raiz, rerender, onSalvo, abrirScanner) {
       const q = rascunho.qr;
       const t = store.lancar({
         valor: rascunho.tipo === 'saida' ? -bruto : bruto,
-        categoria: rascunho.tipo === 'entrada' ? 'Entrada' : rascunho.categoria,
+        categoria: rascunho.tipo === 'entrada'
+          ? (CATEGORIAS_ENTRADA.includes(rascunho.categoria) ? rascunho.categoria : 'Salário')
+          : rascunho.categoria,
         metodo: rascunho.metodo,
         data: q ? q.data : rascunho.data,
         nota: q ? q.quem : '',
         id: q ? q.id : null,
         origem: q ? q.tipo : 'app',
       });
-      rascunho = { centavos: 0, categoria: rascunho.categoria, tipo: 'saida',
+      rascunho = { centavos: 0, categoria: CATEGORIAS.includes(rascunho.categoria) ? rascunho.categoria : 'Mercado', tipo: 'saida',
                    metodo: rascunho.metodo, qr: null, data: hojeISO() };
       onSalvo(t);
     };

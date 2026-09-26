@@ -270,7 +270,13 @@ export function calcular(transacoes, config, hoje = new Date()) {
   const pendentes = ativos.filter((c) => c.situacao.pendente)
     .reduce((s, c) => s + c.liquidoMes, 0);
 
-  const receita = Math.max(config.renda || 0, entradas);
+  // Salário lançado substitui a renda cadastrada (não soma duas vezes);
+  // qualquer outra entrada — férias, rendimento resgatado, extra — soma.
+  const ehSalario = (t) => /sal[aá]rio/i.test(`${t.categoria || ''} ${t.nota || ''}`);
+  const doMesEntradas = mes.filter((t) => t.valor > 0 && !t.reembolso);
+  const salario = doMesEntradas.filter(ehSalario).reduce((s, t) => s + t.valor, 0);
+  const extras = doMesEntradas.filter((t) => !ehSalario(t)).reduce((s, t) => s + t.valor, 0);
+  const receita = Math.max(config.renda || 0, salario) + extras;
   const meta = config.meta || 0;
 
   // Saiu do bolso de verdade: o que paguei menos o que me devolveram.

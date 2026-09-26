@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 13;
+const VERSAO = 14;
 
 const PADRAO = {
   TOKEN: '',
@@ -705,9 +705,11 @@ function avisarDoDia() {
   });
 
   // Mesmo cálculo do app.
-  const entradas = doMes.reduce((s, t) => (t.valor > 0 && !t.reembolso ? s + t.valor : s), 0);
+  const ehSalario = (t) => /sal[aá]rio/i.test((t.categoria || '') + ' ' + (t.nota || ''));
+  const salario = doMes.reduce((s, t) => (t.valor > 0 && !t.reembolso && ehSalario(t) ? s + t.valor : s), 0);
+  const extras = doMes.reduce((s, t) => (t.valor > 0 && !t.reembolso && !ehSalario(t) ? s + t.valor : s), 0);
   const reembolsado = doMes.reduce((s, t) => (t.valor > 0 && t.reembolso ? s + t.valor : s), 0);
-  const receita = Math.max(plan.renda, entradas);
+  const receita = Math.max(plan.renda, salario) + extras;
   const gastos = doMes.reduce((s, t) => (t.valor < 0 ? s + Math.abs(t.valor) : s), 0);
   const pendentes = ativos.reduce((s, c) =>
     (c.situacao.pendente ? s + liquidoNoMes(c, agora) : s), 0);
