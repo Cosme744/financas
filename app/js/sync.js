@@ -5,7 +5,7 @@
 // navegador não dispara o preflight OPTIONS — que o Apps Script não
 // responde. O corpo continua sendo JSON; quem faz o parse é o backend.
 
-import { estado, substituirTransacoes, marcarEnviados, pendentes, salvarConfig } from './store.js';
+import { estado, substituirTransacoes, marcarEnviados, pendentes, salvarConfig, configEnviada } from './store.js';
 
 class ErroSync extends Error {}
 
@@ -30,24 +30,22 @@ async function chamar(acao, payload = {}) {
 }
 
 /**
- * Sobe o que está na fila e traz o mês corrente de volta.
+ * Espelho nos dois sentidos, com a planilha como fonte da verdade.
  *
- * A configuração tem uma regra própria: na PRIMEIRA sincronização quem manda é
- * a planilha, e daí em diante quem manda é o app. Sem isso, um celular recém
- * instalado subiria sua lista vazia de compromissos e apagaria tudo o que o
- * importador tinha acabado de trazer.
+ *   1. Se você mudou renda, meta ou compromissos NO CELULAR, isso sobe.
+ *   2. Sobe a fila de lançamentos.
+ *   3. Baixa TUDO da planilha: configuração e histórico completo.
+ *
+ * Assim, editar direto no Sheets aparece no app na próxima sincronização,
+ * e editar no app aparece no Sheets na mesma hora.
  */
 export async function sincronizar() {
   const st = estado();
-  let baixouConfig = false;
 
-  if (!st.ultimaSync) {
-    const { config } = await chamar('config');
-    salvarConfig(config);
-    baixouConfig = true;
-  } else {
+  if (st.configSuja) {
     const { renda, meta, compromissos } = st.config;
     await chamar('gravarConfig', { config: { renda, meta, compromissos } });
+    configEnviada();
   }
 
   // As três operações vão em chamadas separadas, e cada uma confirma o que
@@ -68,16 +66,17 @@ export async function sincronizar() {
     marcarEnviados(salvos);
   }
 
-  const { transacoes } = await chamar('listar', { desde: inicioDoMesPassado() });
+  // Só aceita a configuração da planilha se nada mudou no celular enquanto
+  // a sync rodava — senão a edição feita agora seria sobrescrita.
+  const { config } = await chamar('config');
+  if (!estado().configSuja) salvarConfig(config, false);
+
+  // Histórico inteiro, não só o mês: a contagem de parcelas pagas depende
+  // de todos os pagamentos, inclusive os de meses atrás.
+  const { transacoes } = await chamar('listar', {});
   substituirTransacoes(transacoes);
 
-  return { enviados: fila.total, recebidos: transacoes.length, baixouConfig };
-}
-
-function inicioDoMesPassado() {
-  const d = new Date();
-  d.setMonth(d.getMonth() - 1, 1);
-  return d.toISOString().slice(0, 10);
+  return { enviados: fila.total, recebidos: transacoes.length };
 }
 
 export { ErroSync };

@@ -406,9 +406,7 @@ async function rodarSync(explicito) {
   try {
     const r = await sincronizar();
     if (explicito) {
-      toast(r.baixouConfig
-        ? 'Configuração baixada da planilha'
-        : `${r.enviados} enviado(s), ${r.recebidos} recebido(s)`);
+      toast(`Sincronizado · ${r.enviados} enviado(s), ${r.recebidos} na planilha`);
     }
     render();
   } catch (e) {
@@ -447,6 +445,11 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('online', sincronizarSilencioso);
+
+// Com o app aberto, confere a planilha a cada 2 minutos.
+setInterval(() => {
+  if (document.visibilityState === 'visible' && !editando && aba !== 'ajustes' && aba !== 'lancar') sincronizarSilencioso();
+}, 120000);
 
 /* ---------- boot ---------- */
 

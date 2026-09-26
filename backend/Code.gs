@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 11;
+const VERSAO = 12;
 
 const PADRAO = {
   TOKEN: '',
@@ -293,6 +293,7 @@ function listar(desde) {
 
   const dados = s.getRange(2, 1, n, COLUNAS.length).getValues();
   const corte = desde || '0000-01-01';
+  garantirIds(s, dados);
 
   return dados.map((linha) => {
     const t = {};
@@ -303,6 +304,20 @@ function listar(desde) {
     t.auto = !!t.origem && t.origem !== 'app';
     return t;
   }).filter((t) => t.data >= corte);
+}
+
+/**
+ * Linha digitada à mão no Sheets chega sem id. Sem id o app não consegue
+ * editar, apagar nem ligar o pagamento ao compromisso — então ganha um
+ * agora, gravado de volta na planilha para ficar estável dali em diante.
+ */
+function garantirIds(s, dados) {
+  let mudou = false;
+  const col = dados.map((r) => {
+    if (!r[0] && (r[1] || r[2])) { r[0] = 'pl-' + Utilities.getUuid().slice(0, 8); mudou = true; }
+    return [r[0]];
+  });
+  if (mudou) s.getRange(2, 1, col.length, 1).setValues(col);
 }
 
 function comoISO(v) {
@@ -327,8 +342,13 @@ function lerConfig() {
 
   const f = aba(ABAS.COMP, COLUNAS_COMP);
   const m = f.getLastRow() - 1;
+  const linhasComp = m > 0 ? f.getRange(2, 1, m, COLUNAS_COMP.length).getValues() : [];
+  garantirIds(f, linhasComp.map((r) => [r[0], r[1], r[2]]));
+  const idsComp = linhasComp.length ? f.getRange(2, 1, m, 1).getValues() : [];
+  linhasComp.forEach((r, i) => { r[0] = idsComp[i][0]; });
+
   const compromissos = m > 0
-    ? f.getRange(2, 1, m, COLUNAS_COMP.length).getValues()
+    ? linhasComp
         .filter((r) => r[1])
         .map((r) => ({
           id: String(r[0]),

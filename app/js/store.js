@@ -17,6 +17,9 @@ const PADRAO = {
   // op é 'inserir', 'atualizar' ou 'apagar'.
   fila: [],
   ultimaSync: null,
+  // Renda, meta ou compromissos mudaram no celular e ainda não subiram.
+  // Enquanto for false, quem manda na configuração é a planilha.
+  configSuja: false,
 };
 
 let dados = carregar();
@@ -136,8 +139,19 @@ export function buscar(id) {
   return dados.transacoes.find((t) => t.id === id) || null;
 }
 
-export function salvarConfig(patch) {
+/**
+ * `doApp` = a mudança veio do usuário no celular. Só renda, meta e
+ * compromissos sujam a configuração; URL, token e preferências são do
+ * aparelho e nunca vão para a planilha.
+ */
+export function salvarConfig(patch, doApp = true) {
   dados.config = { ...dados.config, ...patch };
+  if (doApp && ['renda', 'meta', 'compromissos'].some((k) => k in patch)) dados.configSuja = true;
+  persistir();
+}
+
+export function configEnviada() {
+  dados.configSuja = false;
   persistir();
 }
 
@@ -183,7 +197,7 @@ export function importar(pacote) {
     lancados++;
   }
   dados.transacoes.sort((a, b) => String(b.data).localeCompare(String(a.data)));
-  if (!dados.ultimaSync) dados.ultimaSync = new Date().toISOString();
+  if (novos.length || patch.renda != null || patch.meta != null) dados.configSuja = true;
   persistir();
   return { compromissos: novos.length, lancados };
 }

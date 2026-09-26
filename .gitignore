@@ -23,3 +23,4 @@ _teste-*.html
 
 # Carga inicial com dados pessoais: fica só no PC.
 meus-dados*.json
+_to_delete*

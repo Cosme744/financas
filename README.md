@@ -52,20 +52,16 @@ Abra <http://localhost:8123>. Serve para testar; o app de verdade precisa do pas
 
 6. Copie a URL `.../exec` e cole em **Ajustes** no app, junto com o token.
 
-### Quem manda na configuração
+### Espelho nos dois sentidos
 
-Renda, meta e compromissos existem nos dois lados, então há uma regra fixa:
+A **planilha é a fonte da verdade**, e o app é um espelho que também edita:
 
-- **Primeira sincronização:** a planilha manda. O app baixa tudo o que o
-  importador trouxe, e você não redigita nada.
-- **Daí em diante:** o app manda. Cada sync reescreve as abas `Config` e
-  `Compromissos` com o que está no celular.
-
-Ou seja: **sincronize antes de cadastrar qualquer coisa no app.** Se você
-cadastrar primeiro, a primeira sync sobrescreve o que você digitou.
-
-Depois disso, edite sempre pelo app. Editar direto na planilha funciona até a
-próxima sincronização apagar — as abas são espelho, não fonte.
+- **Editou no Sheets** (aba `Compromissos`, `Config` ou `Lancamentos`)? O app
+  mostra na próxima sincronização — ao abrir, ao voltar para o app, ou a cada
+  2 minutos com ele aberto.
+- **Editou no app?** Sobe para a planilha na hora.
+- Linha digitada à mão no Sheets sem `id` ganha um sozinha na primeira leitura.
+- Em `Lancamentos`, gasto é valor **negativo** e entrada é positivo.
 
 ---
 
