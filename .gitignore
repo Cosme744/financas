@@ -20,3 +20,6 @@ _teste-*.html
 # de acesso à sua conta Google — nunca pode entrar num repositório público.
 .clasp.json
 .clasprc.json
+
+# Carga inicial com dados pessoais: fica só no PC.
+meus-dados*.json

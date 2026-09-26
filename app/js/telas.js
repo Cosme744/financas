@@ -416,5 +416,7 @@ export function ajustes() {
 
   <section class="cartao" style="margin-top:12px;">
     <button class="secundario" id="exportar">Exportar backup (JSON)</button>
+    <button class="secundario" id="importar" style="margin-top:8px;">Importar dados (JSON)</button>
+    <input type="file" id="arqImportar" accept=".json,application/json" hidden>
   </section>`;
 }

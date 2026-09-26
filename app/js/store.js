@@ -159,6 +159,35 @@ export function marcarEnviados(ids) {
   persistir();
 }
 
+/**
+ * Importa um pacote JSON (backup ou carga inicial) sem apagar nada.
+ *
+ * A lista de compromissos do arquivo SUBSTITUI a do celular (é a fonte nova).
+ * Lançamento que já existe é ignorado; o novo entra na fila para subir.
+ * Marca a base como já sincronizada: sem isso a primeira sync baixaria a
+ * configuração da planilha por cima do que acabou de ser importado.
+ */
+export function importar(pacote) {
+  const cfg = pacote.config || {};
+  const novos = cfg.compromissos || [];
+  const patch = novos.length ? { compromissos: novos } : {};
+  if (cfg.renda != null) patch.renda = Number(cfg.renda) || 0;
+  if (cfg.meta != null) patch.meta = Number(cfg.meta) || 0;
+  dados.config = { ...dados.config, ...patch };
+
+  let lancados = 0;
+  for (const t of pacote.transacoes || []) {
+    if (!t.id || existe(t.id)) continue;
+    dados.transacoes.push({ criadoEm: new Date().toISOString(), origem: 'import', ...t });
+    enfileirar('inserir', t.id);
+    lancados++;
+  }
+  dados.transacoes.sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  if (!dados.ultimaSync) dados.ultimaSync = new Date().toISOString();
+  persistir();
+  return { compromissos: novos.length, lancados };
+}
+
 /** O que precisa subir, já separado por operação. */
 export function pendentes() {
   const por = (op) => dados.fila.filter((f) => f.op === op).map((f) => f.id);

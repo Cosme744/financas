@@ -370,6 +370,27 @@ function ligarAjustes() {
       URL.revokeObjectURL(a.href);
     };
   }
+
+  const btnImp = $tela.querySelector('#importar');
+  const arqImp = $tela.querySelector('#arqImportar');
+  if (btnImp && arqImp) {
+    btnImp.onclick = () => arqImp.click();
+    arqImp.onchange = async () => {
+      const arq = arqImp.files[0];
+      if (!arq) return;
+      try {
+        const pacote = JSON.parse(await arq.text());
+        const n = (pacote.config?.compromissos || []).length;
+        if (!confirm(`Substituir seus compromissos por ${n} do arquivo e importar ${(pacote.transacoes || []).length} lançamento(s)?`)) return;
+        const r = store.importar(pacote);
+        toast(`${r.compromissos} compromisso(s) e ${r.lancados} lançamento(s) importados`);
+        render();
+        sincronizarSilencioso();
+      } catch (e) {
+        toast('Arquivo inválido: ' + e.message, true);
+      }
+    };
+  }
 }
 
 /* ---------- sincronização ---------- */
