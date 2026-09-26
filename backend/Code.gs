@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 12;
+const VERSAO = 13;
 
 const PADRAO = {
   TOKEN: '',
@@ -300,7 +300,7 @@ function listar(desde) {
     COLUNAS.forEach((c, i) => { t[c] = linha[i]; });
     t.data = comoISO(t.data);
     t.valor = Number(t.valor) || 0;
-    t.reembolso = t.reembolso === true || String(t.reembolso).toUpperCase() === 'TRUE';
+    t.reembolso = ehVerdade(t.reembolso);
     t.auto = !!t.origem && t.origem !== 'app';
     return t;
   }).filter((t) => t.data >= corte);
@@ -318,6 +318,15 @@ function garantirIds(s, dados) {
     return [r[0]];
   });
   if (mudou) s.getRange(2, 1, col.length, 1).setValues(col);
+}
+
+/**
+ * Verdadeiro em qualquer jeito que a planilha escreva: caixa de seleção,
+ * TRUE, VERDADEIRO (colado do Excel em português vira texto), SIM, X ou 1.
+ */
+function ehVerdade(v) {
+  if (v === true) return true;
+  return ['TRUE', 'VERDADEIRO', 'SIM', 'S', 'X', '1'].indexOf(String(v).trim().toUpperCase()) !== -1;
 }
 
 function comoISO(v) {
@@ -367,7 +376,7 @@ function lerConfig() {
           extraPrimeira: Number(r[9]) || 0,
           // Quem pegou o dinheiro devolve o valor cheio: o compromisso passa
           // pela sua conta sem nunca ser seu.
-          reembolsoTotal: r[10] === true || String(r[10]).toUpperCase() === 'TRUE',
+          reembolsoTotal: ehVerdade(r[10]),
         }))
     : [];
 

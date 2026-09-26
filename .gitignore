@@ -22,5 +22,5 @@ _teste-*.html
 .clasprc.json
 
 # Carga inicial com dados pessoais: fica só no PC.
-meus-dados*.json
+meus-dados*
 _to_delete*
