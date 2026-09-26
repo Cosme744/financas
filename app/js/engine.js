@@ -247,22 +247,49 @@ export function ativosNoMes(compromissos, ref, transacoes) {
 
 /* ---------- o cálculo principal ---------- */
 
-export function calcular(transacoes, config, hoje = new Date()) {
-  const mes = doMes(transacoes, hoje);
-  const ativos = ativosNoMes(config.compromissos, hoje, transacoes);
+const ehSalario = (t) => /sal[aá]rio/i.test(`${t.categoria || ''} ${t.nota || ''}`);
 
-  // Reembolso recebido não é renda sua — é dinheiro de passagem.
-  const entradas = mes.filter((t) => t.valor > 0 && !t.reembolso)
-    .reduce((s, t) => s + t.valor, 0);
-  const reembolsado = mes.filter((t) => t.valor > 0 && t.reembolso)
-    .reduce((s, t) => s + t.valor, 0);
-
+/** Dinheiro que de fato entrou e saiu num mês (sem olhar o que ainda vai vencer). */
+function fluxoDoMes(transacoes, config, ref) {
+  const mes = doMes(transacoes, ref);
+  const entradas = mes.filter((t) => t.valor > 0 && !t.reembolso);
+  const salario = entradas.filter(ehSalario).reduce((s, t) => s + t.valor, 0);
+  const extras = entradas.filter((t) => !ehSalario(t)).reduce((s, t) => s + t.valor, 0);
+  const reembolsado = mes.filter((t) => t.valor > 0 && t.reembolso).reduce((s, t) => s + t.valor, 0);
   const despesas = mes.filter((t) => t.valor < 0);
+  const pagos = despesas.filter((t) => t.compromissoId).reduce((s, t) => s + Math.abs(t.valor), 0);
+  const variaveis = despesas.filter((t) => !t.compromissoId).reduce((s, t) => s + Math.abs(t.valor), 0);
+  // Salário lançado substitui a renda cadastrada (não soma duas vezes);
+  // qualquer outra entrada — férias, rendimento resgatado, extra — soma.
+  const receita = Math.max(config.renda || 0, salario) + extras;
+  return { receita, reembolsado, pagos, variaveis, comprometidoPago: pagos - reembolsado };
+}
 
-  const pagos = despesas.filter((t) => t.compromissoId)
-    .reduce((s, t) => s + Math.abs(t.valor), 0);
-  const variaveis = despesas.filter((t) => !t.compromissoId)
-    .reduce((s, t) => s + Math.abs(t.valor), 0);
+/**
+ * O que sobrou dos meses anteriores e continua na conta.
+ *
+ * Conta a partir de `config.inicio` (aba Config, chave "inicio", 'YYYY-MM') —
+ * o mês em que você começou a lançar tudo. Antes dele o app não sabe o que
+ * entrou e saiu, e somar a renda de meses sem registro inventaria dinheiro.
+ * Gastou além num mês? O negativo também passa para o seguinte.
+ */
+export function saldoAnterior(transacoes, config, ref) {
+  if (!config.inicio) return 0;
+  const [a, m] = String(config.inicio).split('-').map(Number);
+  const fim = new Date(ref.getFullYear(), ref.getMonth(), 1);
+  let d = new Date(a, m - 1, 1);
+  let saldo = 0;
+  while (d < fim) {
+    const f = fluxoDoMes(transacoes, config, d);
+    saldo += f.receita - (config.meta || 0) - f.comprometidoPago - f.variaveis;
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  return saldo;
+}
+
+export function calcular(transacoes, config, hoje = new Date()) {
+  const ativos = ativosNoMes(config.compromissos, hoje, transacoes);
+  const { receita, reembolsado, pagos, variaveis, comprometidoPago } = fluxoDoMes(transacoes, config, hoje);
 
   // O que ainda vai cair antes do fim do mês. Dinheiro que já tem dono.
   // Quem está adiantado não entra: já pagou, e o gasto ficou registrado no
@@ -270,21 +297,12 @@ export function calcular(transacoes, config, hoje = new Date()) {
   const pendentes = ativos.filter((c) => c.situacao.pendente)
     .reduce((s, c) => s + c.liquidoMes, 0);
 
-  // Salário lançado substitui a renda cadastrada (não soma duas vezes);
-  // qualquer outra entrada — férias, rendimento resgatado, extra — soma.
-  const ehSalario = (t) => /sal[aá]rio/i.test(`${t.categoria || ''} ${t.nota || ''}`);
-  const doMesEntradas = mes.filter((t) => t.valor > 0 && !t.reembolso);
-  const salario = doMesEntradas.filter(ehSalario).reduce((s, t) => s + t.valor, 0);
-  const extras = doMesEntradas.filter((t) => !ehSalario(t)).reduce((s, t) => s + t.valor, 0);
-  const receita = Math.max(config.renda || 0, salario) + extras;
   const meta = config.meta || 0;
-
-  // Saiu do bolso de verdade: o que paguei menos o que me devolveram.
-  const comprometidoPago = pagos - reembolsado;
-  const sobra = receita - meta - comprometidoPago - variaveis - pendentes;
+  const anterior = saldoAnterior(transacoes, config, hoje);
+  const sobra = anterior + receita - meta - comprometidoPago - variaveis - pendentes;
 
   const dias = diasRestantes(hoje);
-  const orcamentoVariavel = receita - meta - comprometidoPago - pendentes;
+  const orcamentoVariavel = anterior + receita - meta - comprometidoPago - pendentes;
   const ritmo = orcamentoVariavel / diasNoMes(hoje);
   const porDia = sobra / dias;
 
@@ -293,7 +311,7 @@ export function calcular(transacoes, config, hoje = new Date()) {
   else if (porDia < ritmo * 0.5) status = 'atencao';
 
   return {
-    receita, meta, reembolsado,
+    receita, meta, reembolsado, anterior,
     pagos, pendentes, variaveis,
     comprometido: comprometidoPago + pendentes,
     sobra, dias, ritmo,

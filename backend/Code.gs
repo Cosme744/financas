@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 14;
+const VERSAO = 15;
 
 const PADRAO = {
   TOKEN: '',
@@ -380,7 +380,12 @@ function lerConfig() {
         }))
     : [];
 
-  return { renda: Number(pares.renda) || 0, meta: Number(pares.meta) || 0, compromissos: compromissos };
+  // "inicio": mês a partir do qual a sobra passa de um mês para o outro.
+  const ini = pares.inicio instanceof Date
+    ? Utilities.formatDate(pares.inicio, fuso(), 'yyyy-MM')
+    : (pares.inicio ? String(pares.inicio).slice(0, 7) : null);
+
+  return { renda: Number(pares.renda) || 0, meta: Number(pares.meta) || 0, inicio: ini, compromissos: compromissos };
 }
 
 /**
@@ -394,9 +399,10 @@ function gravarConfig(cfg) {
   const c = aba(ABAS.CFG, ['chave', 'valor']);
   const n = c.getLastRow() - 1;
   if (n > 0) c.getRange(2, 1, n, 2).clearContent();
-  c.getRange(2, 1, 2, 2).setValues([
+  c.getRange(2, 1, 3, 2).setValues([
     ['renda', Number(cfg.renda) || 0],
     ['meta', Number(cfg.meta) || 0],
+    ['inicio', cfg.inicio || ''],
   ]);
 
   const f = aba(ABAS.COMP, COLUNAS_COMP);
@@ -713,7 +719,7 @@ function avisarDoDia() {
   const gastos = doMes.reduce((s, t) => (t.valor < 0 ? s + Math.abs(t.valor) : s), 0);
   const pendentes = ativos.reduce((s, c) =>
     (c.situacao.pendente ? s + liquidoNoMes(c, agora) : s), 0);
-  const sobra = receita - plan.meta - (gastos - reembolsado) - pendentes;
+  const sobra = saldoAnterior(tudo, plan, agora) + receita - plan.meta - (gastos - reembolsado) - pendentes;
 
   avisos.unshift(sobra < 0
     ? '🔴 Você está ' + reais(Math.abs(sobra)) + ' no vermelho neste mês.'
@@ -725,6 +731,27 @@ function avisarDoDia() {
 
   notificar('Meu Dinheiro', avisos.join('\n'));
   return avisos;
+}
+
+/** Mesma regra do app: a sobra dos meses desde Config "inicio" passa adiante. */
+function saldoAnterior(tudo, plan, ref) {
+  if (!plan.inicio) return 0;
+  const p = String(plan.inicio).split('-');
+  let d = new Date(Number(p[0]), Number(p[1]) - 1, 1);
+  const fim = new Date(ref.getFullYear(), ref.getMonth(), 1);
+  let saldo = 0;
+  while (d < fim) {
+    const mes = Utilities.formatDate(d, fuso(), 'yyyy-MM');
+    const doMes = tudo.filter((t) => String(t.data).slice(0, 7) === mes);
+    const ehSal = (t) => /sal[aá]rio/i.test((t.categoria || '') + ' ' + (t.nota || ''));
+    const sal = doMes.reduce((s, t) => (t.valor > 0 && !t.reembolso && ehSal(t) ? s + t.valor : s), 0);
+    const ext = doMes.reduce((s, t) => (t.valor > 0 && !t.reembolso && !ehSal(t) ? s + t.valor : s), 0);
+    const reemb = doMes.reduce((s, t) => (t.valor > 0 && t.reembolso ? s + t.valor : s), 0);
+    const saiu = doMes.reduce((s, t) => (t.valor < 0 ? s + Math.abs(t.valor) : s), 0);
+    saldo += Math.max(plan.renda, sal) + ext - plan.meta - (saiu - reemb);
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  return saldo;
 }
 
 const reais = (v) => 'R$ ' + Utilities.formatString('%.2f', v || 0).replace('.', ',');

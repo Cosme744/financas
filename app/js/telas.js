@@ -68,11 +68,14 @@ export function home(ref) {
   ${htmlAlertaVencidas}
 
   <section class="cartao destaque ${c.status}">
-    <div class="rotulo">${c.sobra < 0 ? 'Você passou do limite' : 'Pode gastar hoje'}</div>
+    <div class="rotulo">${c.sobra < 0 ? 'Você passou do limite' : 'Livre para gastar hoje'}</div>
     <div class="valor">${grande(c.porDia)}</div>
     <div class="sub">${c.sobra < 0
       ? `${dinheiro(Math.abs(c.sobra))} no vermelho este mês`
       : `${dinheiro(c.sobra)} livres até o fim do mês · ${c.dias} dias`}</div>
+    <div class="sub" style="margin-top:6px;font-size:12px;opacity:.8">${c.pendentes > 0
+      ? `Já reservado para as contas que ainda vencem este mês (${dinheiro(c.pendentes)})`
+      : 'Todas as contas do mês já foram pagas e descontadas'}</div>
   </section>
 
   ${quis > 0 ? `
@@ -83,6 +86,7 @@ export function home(ref) {
   </section>` : ''}
 
   <section class="cartao linhas">
+    ${c.anterior ? `<div class="linha"><span class="nome">Sobra do mês anterior</span><span class="num ${c.anterior < 0 ? 'neg' : 'pos'}">${dinheiro(c.anterior)}</span></div>` : ''}
     <div class="linha"><span class="nome">Entradas do mês</span><span class="num pos">${dinheiro(c.receita)}</span></div>
     <div class="linha"><span class="nome">Compromissos do mês</span><span class="num neg">${dinheiro(c.comprometido)}</span></div>
     <div class="linha"><span class="nome">Gastos do dia a dia</span><span class="num neg">${dinheiro(c.variaveis)}</span></div>

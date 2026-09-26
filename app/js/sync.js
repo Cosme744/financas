@@ -43,8 +43,8 @@ export async function sincronizar() {
   const st = estado();
 
   if (st.configSuja) {
-    const { renda, meta, compromissos } = st.config;
-    await chamar('gravarConfig', { config: { renda, meta, compromissos } });
+    const { renda, meta, compromissos, inicio } = st.config;
+    await chamar('gravarConfig', { config: { renda, meta, compromissos, inicio } });
     configEnviada();
   }
 
