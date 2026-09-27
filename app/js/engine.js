@@ -138,6 +138,24 @@ export function porDia(transacoes, ref) {
     }));
 }
 
+/* ---------- cartão de crédito ---------- */
+
+/** A fatura fecha 2 dias antes do fim do mês (30→28, 31→29, fev→26) e vence no mês seguinte. */
+export const fechamentoDoMes = (d) => diasNoMes(d) - 2;
+
+/** Mês ('YYYY-MM') em que vence a fatura de uma compra feita em `dataISO`. */
+export function mesDaFatura(dataISO) {
+  const [a, m, d] = String(dataISO).slice(0, 10).split('-').map(Number);
+  const pula = d <= fechamentoDoMes(new Date(a, m - 1, 1)) ? 1 : 2;
+  return chaveMes(new Date(a, m - 1 + pula, 1));
+}
+
+const ehCompraCredito = (t) => t.valor < 0 && !t.compromissoId && t.metodo === 'credito';
+
+/** Compras no crédito lançadas que caem na fatura que vence no mês de `ref`. */
+export const comprasDaFatura = (transacoes, ref) =>
+  (transacoes || []).filter((t) => ehCompraCredito(t) && mesDaFatura(t.data) === chaveMes(ref));
+
 /* ---------- parcelas ---------- */
 
 /**
@@ -179,9 +197,18 @@ export const diaNoMes = (dia, ref) => Math.min(dia || 1, diasNoMes(ref));
  * Conta indefinida (luz, internet) não tem contagem que acabe, então para ela
  * a pergunta certa continua sendo a do mês.
  */
-export function situacao(c, transacoes, ref) {
-  const pagamentos = (transacoes || [])
-    .filter((t) => t.compromissoId === c.id && t.valor < 0);
+export function situacao(c, transacoes, ref, cartaoId = null) {
+  // Parcela no cartão não tem pagamento próprio: está paga quando a FATURA
+  // do mês dela foi paga.
+  const noCartao = c.noCartao && cartaoId && c.parcelas && c.inicio;
+  const pagamentos = (transacoes || []).filter((t) => {
+    if (t.valor >= 0) return false;
+    if (!noCartao) return t.compromissoId === c.id;
+    if (t.compromissoId !== cartaoId) return false;
+    const [a, m] = String(t.data).split('-').map(Number);
+    const k = mesesDesde(c.inicio, new Date(a, m - 1, 1));
+    return k >= 0 && k < c.parcelas;
+  });
 
   if (!c.parcelas) {
     const mes = chaveMes(ref);
@@ -209,8 +236,8 @@ export function situacao(c, transacoes, ref) {
  * `restaBruto` é o que sai da conta; `restaLiquido` é o que pesa no SEU bolso
  * (zero quando alguém te devolve o valor cheio).
  */
-export function resumoParcelamento(c, transacoes, hoje = new Date()) {
-  const s = situacao(c, transacoes, hoje);
+export function resumoParcelamento(c, transacoes, hoje = new Date(), cartaoId = null) {
+  const s = situacao(c, transacoes, hoje, cartaoId);
   const pagas = s.pagas || 0;
   const faltam = Math.max(0, c.parcelas - pagas);
   const [a, m] = String(c.inicio || chaveMes(hoje)).split('-').map(Number);
@@ -228,11 +255,12 @@ export function resumoParcelamento(c, transacoes, hoje = new Date()) {
 
 /** Compromissos vivos no mês, já com parcela, dia efetivo e situação. */
 export function ativosNoMes(compromissos, ref, transacoes) {
-  return (compromissos || [])
+  const cartaoId = ((compromissos || []).find((c) => c.cartao) || {}).id || null;
+  const base = (compromissos || [])
     .map((c) => ({ ...c, parcela: parcelaNoMes(c, ref), diaEfetivo: diaNoMes(c.dia, ref) }))
     .filter((c) => c.parcela !== null)
     .map((c) => {
-      const s = situacao(c, transacoes, ref);
+      const s = situacao(c, transacoes, ref, cartaoId);
       return {
         ...c,
         valorMes: valorNoMes(c, ref),
@@ -242,8 +270,26 @@ export function ativosNoMes(compromissos, ref, transacoes) {
         parcela: { ...c.parcela, faltaPagar: faltaPagar(c, ref, (s.pagas || 0) + 1) },
         situacao: s,
       };
-    })
-    .sort((a, b) => a.diaEfetivo - b.diaEfetivo);
+    });
+
+  // Parcelas no cartão não são contas separadas: entram na fatura.
+  const dentro = cartaoId ? base.filter((c) => c.noCartao) : [];
+  const lista = cartaoId ? base.filter((c) => !c.noCartao) : base;
+
+  for (const c of lista) {
+    if (!c.cartao) continue;
+    const somaParc = dentro.reduce((s, x) => s + x.liquidoMes, 0);
+    const compras = comprasDaFatura(transacoes, ref).reduce((s, t) => s + Math.abs(t.valor), 0);
+    c.fixos = c.valorMes;
+    c.parcelasCartao = dentro;
+    c.comprasLancadas = compras;
+    c.valorMes += somaParc + compras;   // total da fatura
+    // Compras lançadas já saíram do "livre" no dia da compra; reservar de
+    // novo seria contar duas vezes. Fixos e parcelas ainda não.
+    c.liquidoMes += somaParc;
+  }
+
+  return lista.sort((a, b) => a.diaEfetivo - b.diaEfetivo);
 }
 
 /* ---------- o cálculo principal ---------- */
@@ -403,7 +449,7 @@ export function projecao(config, transacoes, meses = 6, hoje = new Date()) {
       comprometido,
       sobra,
       variavelEstimado: media,
-      terminando: ativos.filter((c) => c.parcela.ultima),
+      terminando: ativos.flatMap((c) => [c, ...(c.parcelasCartao || [])]).filter((c) => c.parcela.ultima),
       quantidade: ativos.length,
     });
   }

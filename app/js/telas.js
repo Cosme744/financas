@@ -2,7 +2,7 @@
 
 import { calcular, porCategoria, doMes, doDia, porDia, projecao, faixas,
          chaveMes, gastoPorQuis, CATEGORIA_QUIS, hojeISO, rotuloMes,
-         resumoParcelamento } from './engine.js';
+         resumoParcelamento, mesDaFatura } from './engine.js';
 import * as store from './store.js';
 
 export const CATEGORIAS = [
@@ -122,6 +122,10 @@ function contaHTML(x, hojeDia, paga) {
   const atrasada = !paga && x.diaEfetivo < hojeDia;
   const n = paga ? x.situacao.pagas : x.situacao.proxima;
   const qual = x.parcela.total ? ` · parcela ${n}/${x.parcela.total}` : '';
+  const fatura = x.cartao ? `<small style="display:block;color:var(--texto-fraco);margin-top:2px">
+      fixos ${dinheiro(x.fixos)}${(x.parcelasCartao || []).map((p) =>
+        ` + ${escapar(p.nome)} ${p.parcela.n}/${p.parcela.total} ${dinheiro(p.liquidoMes)}`).join('')}${x.comprasLancadas
+        ? ` + compras lançadas ${dinheiro(x.comprasLancadas)} (já descontadas)` : ''}</small>` : '';
   const repasse = x.reembolsoMes > 0
     ? `<small style="display:block;color:var(--texto-fraco);margin-top:2px">${x.reembolsoMes >= x.valorMes
         ? 'Devolvido por terceiro · não é seu gasto — não gaste esse dinheiro'
@@ -136,6 +140,7 @@ function contaHTML(x, hojeDia, paga) {
       <small style="color:var(--texto-fraco);">${paga ? 'Paga' : (atrasada ? 'Venceu dia ' + x.diaEfetivo : 'Vence dia ' + x.diaEfetivo)}${qual}</small>
       ${!paga ? `<button class="secundario pagar" data-pagar="${x.id}" style="padding: 2px 8px; font-size:11px;">Marcar como paga</button>` : ''}
     </div>
+    ${fatura}
     ${repasse}
   </div>`;
 }
@@ -187,6 +192,11 @@ export function lancar() {
       ${METODOS.map((m) =>
         `<button class="chip ${rascunho.metodo === m.id ? 'on' : ''}" data-metodo="${m.id}">${m.nome}</button>`).join('')}
     </div>
+
+    ${rascunho.tipo === 'saida' && rascunho.metodo === 'credito' ? (() => {
+      const [a, m] = mesDaFatura(rascunho.data).split('-');
+      return `<small style="display:block;margin:-6px 0 12px;color:var(--texto-fraco)">Entra na fatura que vence em 10/${m}/${a.slice(2)} · já sai do seu livre hoje</small>`;
+    })() : ''}
 
     <div class="rotulo-campo">Categoria</div>
     <div class="chips" style="display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap;">
@@ -344,7 +354,7 @@ export function futuro() {
   const mesAtual = rotuloMes(hoje);
 
   const parcs = comps.filter((c) => c.parcelas)
-    .map((c) => resumoParcelamento(c, transacoes, hoje))
+    .map((c) => resumoParcelamento(c, transacoes, hoje, (comps.find((x) => x.cartao) || {}).id))
     .filter((p) => !p.quitado)
     .sort((a, b) => a.fim - b.fim);
 
@@ -381,6 +391,7 @@ export function futuro() {
         <span class="nome">${escapar(p.nome)}
           <small style="display:block">${p.pagas} de ${p.parcelas} pagas · faltam ${p.faltam} · última em ${rotuloMes(p.fim)}</small>
           ${p.reembolsoTotal ? '<small style="display:block;color:var(--texto-fraco)">devolvido por terceiro · não pesa no seu bolso</small>' : ''}
+          ${p.noCartao ? '<small style="display:block;color:var(--texto-fraco)">no cartão de crédito · vem na fatura</small>' : ''}
         </span>
         <div style="text-align:right">
           <span class="num neg">${dinheiro(p.valor)}/mês</span>
@@ -412,7 +423,7 @@ export function ajustes() {
     ${comps.length ? comps.map((c) => `
       <div class="linha editavel" data-comp="${c.id}" role="button" tabindex="0">
         <span class="nome">${escapar(c.nome)}
-          <small>dia ${c.dia} · ${c.parcelas ? c.parcelas + 'x desde ' + escapar(c.inicio || '?') : 'todo mês'}</small>
+          <small>dia ${c.dia} · ${c.parcelas ? c.parcelas + 'x desde ' + escapar(c.inicio || '?') : 'todo mês'}${c.noCartao ? ' · no cartão' : ''}${c.cartao ? ' · fatura (fixos)' : ''}</small>
         </span>
         <span class="num neg">${dinheiro(c.valor)}</span>
       </div>`).join('')
@@ -443,6 +454,13 @@ export function ajustes() {
 
     <label class="campo"><span>Cobrança extra só na 1ª parcela (R$)</span>
       <input type="number" inputmode="decimal" id="cExtra" placeholder="0,00"></label>
+
+    <div class="rotulo-campo">Como é pago?</div>
+    <div class="chips" style="margin-bottom:10px">
+      <button class="chip" data-pag="conta">Conta / boleto / débito</button>
+      <button class="chip" data-pag="nocartao">Parcela no cartão de crédito</button>
+      <button class="chip" data-pag="cartao">É a fatura do cartão</button>
+    </div>
 
     <div class="rotulo-campo">Alguém te devolve esse dinheiro?</div>
     <div class="chips" style="margin-bottom:10px">

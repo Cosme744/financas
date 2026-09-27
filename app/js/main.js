@@ -2,7 +2,7 @@
 
 import * as store from './store.js';
 import * as telas from './telas.js';
-import { situacao, valorNoMes, reembolsoNoMes, hojeISO } from './engine.js';
+import { situacao, valorNoMes, reembolsoNoMes, hojeISO, ativosNoMes } from './engine.js';
 import { sincronizar } from './sync.js';
 import { escanear, interpretar, nomeDoCNPJ } from './qr.js';
 
@@ -40,9 +40,36 @@ function pagarCompromisso(id, adiantando) {
   const c = store.estado().config.compromissos.find((x) => x.id === id);
   if (!c) return;
 
+  const hoje = hojeISO();
+
+  // Fatura: paga-se o valor real, mas as compras já lançadas no crédito não
+  // saem de novo do bolso — só o que ainda não tinha sido descontado.
+  if (c.cartao) {
+    const { config, transacoes } = store.estado();
+    const f = ativosNoMes(config.compromissos, new Date(), transacoes).find((x) => x.id === c.id);
+    const total = f ? f.valorMes : c.valor;
+    const compras = f ? f.comprasLancadas : 0;
+    const bruto = prompt(`Valor da fatura (confira no app do banco):`, total.toFixed(2).replace('.', ','));
+    if (bruto === null) return;
+    const real = Number(String(bruto).replace(/\./g, '').replace(',', '.'));
+    if (!Number.isFinite(real) || real <= 0) return toast('Valor inválido', true);
+    store.lancar({
+      valor: -Math.max(0, real - compras),
+      categoria: c.categoria || c.nome,
+      nota: `${c.nome} — total ${telas.dinheiro(real)}${compras ? ` (compras já lançadas ${telas.dinheiro(compras)})` : ''}`,
+      compromissoId: c.id,
+      metodo: 'debito',
+      data: hoje,
+    });
+    vibrar(14);
+    toast(`${c.nome} paga`);
+    render();
+    sincronizarSilencioso();
+    return;
+  }
+
   const s = situacao(c, store.estado().transacoes, new Date());
   const parcela = c.parcelas ? s.proxima : null;
-  const hoje = hojeISO();
 
   // O mês a que ESTA parcela pertence decide o seguro da 1ª e o reembolso.
   let refParcela = new Date();
@@ -150,6 +177,12 @@ function ligarFormCompromisso() {
   const $ = (id) => $tela.querySelector(id);
 
   let modo = 'nao';
+  let modoPag = 'conta';
+  const pintarPag = () => $tela.querySelectorAll('[data-pag]').forEach((b) =>
+    b.classList.toggle('on', b.dataset.pag === modoPag));
+  $tela.querySelectorAll('[data-pag]').forEach((b) => {
+    b.onclick = () => { modoPag = b.dataset.pag; pintarPag(); };
+  });
 
   const pintarReembolso = () => {
     $tela.querySelectorAll('[data-reemb]').forEach((b) =>
@@ -169,6 +202,8 @@ function ligarFormCompromisso() {
     }
     modo = 'nao';
     pintarReembolso();
+    modoPag = 'conta';
+    pintarPag();
     if ($('#cTitulo')) $('#cTitulo').textContent = 'Novo compromisso';
     if ($('#addComp')) $('#addComp').textContent = 'Adicionar compromisso';
     if ($('#delComp')) $('#delComp').hidden = true;
@@ -187,6 +222,8 @@ function ligarFormCompromisso() {
     if ($('#cReembolso')) $('#cReembolso').value = c.reembolso || '';
     modo = c.reembolsoTotal ? 'total' : (c.reembolso ? 'parte' : 'nao');
     pintarReembolso();
+    modoPag = c.cartao ? 'cartao' : (c.noCartao ? 'nocartao' : 'conta');
+    pintarPag();
     if ($('#cTitulo')) $('#cTitulo').textContent = 'Editando: ' + c.nome;
     if ($('#addComp')) $('#addComp').textContent = 'Salvar alterações';
     if ($('#delComp')) $('#delComp').hidden = false;
@@ -195,6 +232,7 @@ function ligarFormCompromisso() {
   };
 
   pintarReembolso();
+  pintarPag();
 
   // Clique na lista de compromissos para carregar no formulário
   $tela.querySelectorAll('[data-comp]').forEach((b) => {
@@ -229,6 +267,8 @@ function ligarFormCompromisso() {
         extraPrimeira: num('#cExtra'),
         reembolso: modo === 'parte' ? num('#cReembolso') : 0,
         reembolsoTotal: modo === 'total',
+        cartao: modoPag === 'cartao',
+        noCartao: modoPag === 'nocartao',
         pagasAntes: num('#cParcelas') ? Math.min(num('#cPagas'), num('#cParcelas')) : 0,
         categoria: atual.categoria || nome,
       };

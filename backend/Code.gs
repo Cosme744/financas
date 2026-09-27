@@ -31,7 +31,7 @@
  * `diagnostico()` imprime na primeira linha, então dá para conferir se a
  * cópia que está rodando é a mesma do repositório sem comparar nada na mão.
  */
-const VERSAO = 16;
+const VERSAO = 17;
 
 const PADRAO = {
   TOKEN: '',
@@ -136,7 +136,7 @@ const COLUNAS = ['id', 'data', 'valor', 'categoria', 'conta', 'nota', 'metodo',
 
 const COLUNAS_COMP = ['id', 'nome', 'valor', 'dia', 'categoria', 'conta',
                       'inicio', 'parcelas', 'reembolso', 'extraPrimeira', 'reembolsoTotal',
-                      'pagasAntes'];
+                      'pagasAntes', 'cartao', 'noCartao'];
 
 // ============================================================
 // API
@@ -380,6 +380,8 @@ function lerConfig() {
           reembolsoTotal: ehVerdade(r[10]),
           // Parcelas quitadas antes de usar o app, sem lançamento que as prove.
           pagasAntes: Number(r[11]) || 0,
+          cartao: ehVerdade(r[12]),      // este compromisso É a fatura do cartão
+          noCartao: ehVerdade(r[13]),    // parcela paga dentro da fatura
         }))
     : [];
 
@@ -421,6 +423,7 @@ function gravarConfig(cfg) {
       x.inicio || '', x.parcelas || '', Number(x.reembolso) || 0,
       Number(x.extraPrimeira) || 0, x.reembolsoTotal === true,
       Number(x.pagasAntes) || 0,
+      x.cartao === true, x.noCartao === true,
     ]));
   }
   atualizarPainel();
@@ -507,7 +510,8 @@ function situacao(c, transacoes, ref) {
 }
 
 function ativosNoMes(compromissos, ref, transacoes) {
-  return compromissos
+  // Parcela no cartão vem dentro da fatura: não é aviso nem conta separada.
+  return compromissos.filter((c) => !c.noCartao)
     .map((c) => {
       const p = parcelaNoMes(c, ref);
       return p ? Object.assign({}, c, {
