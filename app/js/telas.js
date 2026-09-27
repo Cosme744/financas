@@ -332,8 +332,16 @@ export function futuro() {
   const hoje = new Date();
   // Próximos 12 meses, a partir do mês que vem.
   const linhas = projecao(config, transacoes, 12, hoje).slice(1);
+
+  // Acumulado: parte do que sobra ESTE mês (já com férias, extras, tudo o
+  // que foi lançado e as contas que faltam) e soma mês a mês.
+  const atual = calcular(transacoes, config, hoje);
+  let acc = atual.sobra;
+  for (const l of linhas) { acc += l.sobra; l.acumulado = acc; }
+
   const prox = linhas[0];
   const grupos = faixas(linhas);
+  const mesAtual = rotuloMes(hoje);
 
   const parcs = comps.filter((c) => c.parcelas)
     .map((c) => resumoParcelamento(c, transacoes, hoje))
@@ -341,11 +349,13 @@ export function futuro() {
     .sort((a, b) => a.fim - b.fim);
 
   return `
-  <section class="cartao destaque ${prox.sobra < 0 ? 'estourado' : 'ok'}">
-    <div class="rotulo">Sobra prevista em ${prox.rotulo}</div>
-    <div class="valor">${grande(prox.sobra)}</div>
-    <div class="sub">renda ${dinheiro(config.renda)} − compromissos ${dinheiro(prox.comprometido)}
-      − dia a dia ~${dinheiro(prox.variavelEstimado)}</div>
+  <section class="cartao destaque ${prox.acumulado < 0 ? 'estourado' : 'ok'}">
+    <div class="rotulo">Livre no fim de ${prox.rotulo}</div>
+    <div class="valor">${grande(prox.acumulado)}</div>
+    <div class="sub">sobra de ${mesAtual} ${dinheiro(atual.sobra)}
+      ${prox.sobra < 0 ? '−' : '+'} ${dinheiro(Math.abs(prox.sobra))} de ${prox.rotulo} (salário − contas)</div>
+    <div class="sub" style="margin-top:6px;font-size:12px;opacity:.8">Conta tudo o que já foi lançado: entradas, gastos e contas.
+      Gastos futuros entram quando você lançar.</div>
   </section>
 
   <h2 class="titulo">Quando melhora</h2>
@@ -357,7 +367,9 @@ export function futuro() {
           ${i > 0 && g.alivio > 0.005 ? `<small style="display:block;color:var(--verde,#3ecf8e)">▼ ${dinheiro(g.alivio)} a menos por mês</small>` : ''}
           ${g.terminando.length ? `<small style="display:block">🎉 última parcela: ${g.terminando.map((t) => escapar(t.nome)).join(', ')}</small>` : ''}
         </span>
-        <span class="num ${g.sobra < 0 ? 'neg' : 'pos'}">${dinheiro(g.sobra)}<small style="display:block;font-size:11px;color:var(--texto-fraco)">sobra/mês</small></span>
+        <span class="num ${g.fim.acumulado < 0 ? 'neg' : 'pos'}" style="text-align:right">${dinheiro(g.fim.acumulado)}
+          <small style="display:block;font-size:11px;color:var(--texto-fraco)">livre em ${g.fim.rotulo}</small>
+          <small style="display:block;font-size:11px;color:var(--texto-fraco)">${g.sobra < 0 ? '−' : '+'}${dinheiro(Math.abs(g.sobra))}/mês</small></span>
       </div>`).join('')}
   </section>
 

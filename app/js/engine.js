@@ -380,7 +380,10 @@ export function mediaVariavel(transacoes, hoje = new Date(), n = 3) {
  * cada parcelamento que termina aparece como dinheiro que volta pro bolso.
  */
 export function projecao(config, transacoes, meses = 6, hoje = new Date()) {
-  const media = mediaVariavel(transacoes, hoje);
+  // Sem chute de gasto do dia a dia: a projeção usa só o que é conhecido
+  // (salário e contas). Uma compra de teste extrapolada para o mês inteiro
+  // mudava o futuro inteiro — o que você gastar entra quando for lançado.
+  const media = 0;
   const linhas = [];
 
   for (let i = 0; i <= meses; i++) {
